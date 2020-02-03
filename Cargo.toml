@@ -1,0 +1,9 @@
+[package]
+name = "slice-vec"
+version = "0.2.0"
+authors = ["Zachary Pierce <zack@auxon.io>"]
+edition = "2018"
+license = "Apache-2.0"
+repository = "https://github.com/auxoncorp/slice-vec"
+readme = "README.md"
+
