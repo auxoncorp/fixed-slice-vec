@@ -30,7 +30,7 @@ pub fn embed<'a, T, F, E>(destination: &'a mut [u8], f: F) -> Result<&'a mut T, 
 where
     F: Fn(&'a mut [u8]) -> Result<T, E>,
 {
-    debug_assert!(!destination.as_mut_ptr().is_null());
+    debug_assert!(!destination.as_ptr().is_null());
     let (_prefix, uninit_ref, suffix) = split_uninit_from_bytes(destination)?;
     unsafe {
         let ptr = uninit_ref.as_mut_ptr();
@@ -56,7 +56,7 @@ pub fn embed_uninit<'a, T, F, E>(
 where
     F: Fn(&'a mut [MaybeUninit<u8>]) -> Result<T, E>,
 {
-    debug_assert!(!destination.as_mut_ptr().is_null());
+    debug_assert!(!destination.as_ptr().is_null());
     let (_prefix, uninit_ref, suffix) = split_uninit_from_uninit_bytes(destination)?;
     unsafe {
         let ptr = uninit_ref.as_mut_ptr();
@@ -86,18 +86,27 @@ pub enum SplitUninitError {
 ///
 /// Does not access or mutate the content of the provided `destination` byte
 /// slice.
+#[allow(clippy::type_complexity)]
 #[inline]
 pub fn split_uninit_from_bytes<T>(
     destination: &mut [u8],
 ) -> Result<(&mut [u8], &mut MaybeUninit<T>, &mut [u8]), SplitUninitError> {
-    debug_assert!(!destination.as_mut_ptr().is_null());
+    debug_assert!(!destination.as_ptr().is_null());
     // Here we rely on the assurance that MaybeUninit has the same layout
     // as its parameterized type, and our knowledge of the implementation
     // of `split_uninit_from_uninit_bytes`, namely that it never accesses
     // or mutates any content passed to it.
     let (prefix, uninit_ref, suffix): (_, &mut MaybeUninit<T>, _) =
-        split_uninit_from_uninit_bytes(unsafe { transmute(destination) })?;
-    Ok(unsafe { (transmute(prefix), transmute(uninit_ref), transmute(suffix)) })
+        split_uninit_from_uninit_bytes(unsafe {
+            &mut *(destination as *mut [u8] as *mut [core::mem::MaybeUninit<u8>])
+        })?;
+    Ok(unsafe {
+        (
+            &mut *(prefix as *mut [core::mem::MaybeUninit<u8>] as *mut [u8]),
+            transmute(uninit_ref),
+            &mut *(suffix as *mut [core::mem::MaybeUninit<u8>] as *mut [u8]),
+        )
+    })
 }
 
 /// Split out a mutable reference to an uninitialized struct at an available
@@ -105,6 +114,7 @@ pub fn split_uninit_from_bytes<T>(
 ///
 /// Does not access or mutate the content of the provided `destination` byte
 /// slice.
+#[allow(clippy::type_complexity)]
 #[inline]
 pub fn split_uninit_from_uninit_bytes<T>(
     destination: &mut [MaybeUninit<u8>],
@@ -116,7 +126,7 @@ pub fn split_uninit_from_uninit_bytes<T>(
     ),
     SplitUninitError,
 > {
-    debug_assert!(!destination.as_mut_ptr().is_null());
+    debug_assert!(!destination.as_ptr().is_null());
     if size_of::<T>() == 0 {
         return Err(SplitUninitError::ZeroSizedTypesUnsupported);
     }
