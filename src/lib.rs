@@ -17,7 +17,7 @@
 //! in your Cargo.toml file.
 //!
 //! ```toml
-//! slice-vec = { git = "ssh://git@github.com/auxoncorp/slice-vec.git" }
+//! slice-vec = "0.2"
 //! ```
 //!
 //! ## Usage
