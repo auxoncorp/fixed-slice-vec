@@ -10,7 +10,7 @@ use core::ops::{Deref, DerefMut};
 ///
 /// The maximum length (the capacity) is fixed at runtime to the length of the
 /// provided storage slice.
-pub struct SliceVec<'a, T: Sized + Copy> {
+pub struct FixedSliceVec<'a, T: Sized + Copy> {
     /// Backing storage, provides capacity
     storage: &'a mut [MaybeUninit<T>],
     /// The number of items that have been
@@ -18,14 +18,14 @@ pub struct SliceVec<'a, T: Sized + Copy> {
     len: usize,
 }
 
-impl<'a, T: Sized + Copy> SliceVec<'a, T> {
+impl<'a, T: Sized + Copy> FixedSliceVec<'a, T> {
     /// Create a SliceVec backed by a slice of possibly-uninitialized data.
     /// The backing storage slice is used as capacity for Vec-like operations,
     ///
     /// The initial length of the SliceVec is 0.
     #[inline]
     pub fn new(storage: &'a mut [MaybeUninit<T>]) -> Self {
-        SliceVec { storage, len: 0 }
+        FixedSliceVec { storage, len: 0 }
     }
 
     /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
@@ -37,16 +37,16 @@ impl<'a, T: Sized + Copy> SliceVec<'a, T> {
     ///
     /// ```
     /// # let mut bytes = [3u8, 1, 4, 1, 5, 9];
-    /// let vec = slice_vec::SliceVec::from_bytes(&mut bytes[..]);
-    /// # let vec: slice_vec::SliceVec<u16> = vec;
+    /// let vec = fixed_slice_vec::FixedSliceVec::from_bytes(&mut bytes[..]);
+    /// # let vec: fixed_slice_vec::FixedSliceVec<u16> = vec;
     /// ```
     ///
     /// The bytes are treated as if they might be uninitialized, so even if `T` is `u8`,
     /// the length of the returned `SliceVec` will be zero.
     #[inline]
-    pub fn from_bytes(bytes: &'a mut [u8]) -> SliceVec<'a, T> {
-        let (_prefix, slice_vec, _suffix) = SliceVec::align_from_bytes(bytes);
-        slice_vec
+    pub fn from_bytes(bytes: &'a mut [u8]) -> FixedSliceVec<'a, T> {
+        let (_prefix, fixed_slice_vec, _suffix) = FixedSliceVec::align_from_bytes(bytes);
+        fixed_slice_vec
     }
 
     /// Create a well-aligned SliceVec backed by a slice of the provided
@@ -57,9 +57,9 @@ impl<'a, T: Sized + Copy> SliceVec<'a, T> {
     /// either side of the carved-out SliceVec buffer, consider using `align_from_uninit_bytes`:
     ///
     #[inline]
-    pub fn from_uninit_bytes(bytes: &'a mut [MaybeUninit<u8>]) -> SliceVec<'a, T> {
-        let (_prefix, slice_vec, _suffix) = SliceVec::align_from_uninit_bytes(bytes);
-        slice_vec
+    pub fn from_uninit_bytes(bytes: &'a mut [MaybeUninit<u8>]) -> FixedSliceVec<'a, T> {
+        let (_prefix, fixed_slice_vec, _suffix) = FixedSliceVec::align_from_uninit_bytes(bytes);
+        fixed_slice_vec
     }
 
     /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
@@ -69,16 +69,18 @@ impl<'a, T: Sized + Copy> SliceVec<'a, T> {
     ///
     /// ```
     /// let mut bytes = [3u8, 1, 4, 1, 5, 9];
-    /// let (prefix, vec, suffix) = slice_vec::SliceVec::align_from_bytes(&mut bytes[..]);
-    /// let vec: slice_vec::SliceVec<u16> = vec;
+    /// let (prefix, vec, suffix) = fixed_slice_vec::FixedSliceVec::align_from_bytes(&mut bytes[..]);
+    /// let vec: fixed_slice_vec::FixedSliceVec<u16> = vec;
     /// ```
     ///
     /// The bytes are treated as if they might be uninitialized, so even if `T` is `u8`,
     /// the length of the returned `SliceVec` will be zero.
     #[inline]
-    pub fn align_from_bytes(bytes: &'a mut [u8]) -> (&'a mut [u8], SliceVec<'a, T>, &'a mut [u8]) {
+    pub fn align_from_bytes(
+        bytes: &'a mut [u8],
+    ) -> (&'a mut [u8], FixedSliceVec<'a, T>, &'a mut [u8]) {
         let (prefix, storage, suffix) = unsafe { bytes.align_to_mut() };
-        (prefix, SliceVec { storage, len: 0 }, suffix)
+        (prefix, FixedSliceVec { storage, len: 0 }, suffix)
     }
 
     /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
@@ -89,9 +91,9 @@ impl<'a, T: Sized + Copy> SliceVec<'a, T> {
     /// ```
     /// # use core::mem::MaybeUninit;
     /// let mut bytes: [MaybeUninit<u8>; 15] = unsafe { MaybeUninit::uninit().assume_init() };
-    /// let (prefix, vec, suffix) = slice_vec::SliceVec::align_from_uninit_bytes(&mut
+    /// let (prefix, vec, suffix) = fixed_slice_vec::FixedSliceVec::align_from_uninit_bytes(&mut
     /// bytes[..]);
-    /// let vec: slice_vec::SliceVec<u16> = vec;
+    /// let vec: fixed_slice_vec::FixedSliceVec<u16> = vec;
     /// ```
     ///
     /// The length of the returned `SliceVec` will be zero.
@@ -100,11 +102,11 @@ impl<'a, T: Sized + Copy> SliceVec<'a, T> {
         bytes: &'a mut [MaybeUninit<u8>],
     ) -> (
         &'a mut [MaybeUninit<u8>],
-        SliceVec<'a, T>,
+        FixedSliceVec<'a, T>,
         &'a mut [MaybeUninit<u8>],
     ) {
         let (prefix, storage, suffix) = unsafe { bytes.align_to_mut() };
-        (prefix, SliceVec { storage, len: 0 }, suffix)
+        (prefix, FixedSliceVec { storage, len: 0 }, suffix)
     }
 
     /// The length of the SliceVec. The number of initialized
@@ -202,18 +204,18 @@ impl<T> core::fmt::Debug for TryPushError<T> {
     }
 }
 
-impl<'a, T: Sized + Copy> From<&'a mut [MaybeUninit<T>]> for SliceVec<'a, T> {
+impl<'a, T: Sized + Copy> From<&'a mut [MaybeUninit<T>]> for FixedSliceVec<'a, T> {
     #[inline]
     fn from(v: &'a mut [MaybeUninit<T>]) -> Self {
-        SliceVec { storage: v, len: 0 }
+        FixedSliceVec { storage: v, len: 0 }
     }
 }
 
-impl<'a, T: Sized + Copy> From<&'a mut [T]> for SliceVec<'a, T> {
+impl<'a, T: Sized + Copy> From<&'a mut [T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn from(v: &'a mut [T]) -> Self {
         let len = v.len();
-        SliceVec {
+        FixedSliceVec {
             storage: unsafe {
                 core::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut MaybeUninit<T>, len)
             },
@@ -222,7 +224,7 @@ impl<'a, T: Sized + Copy> From<&'a mut [T]> for SliceVec<'a, T> {
     }
 }
 
-impl<'a, T: Sized + Copy> Hash for SliceVec<'a, T>
+impl<'a, T: Sized + Copy> Hash for FixedSliceVec<'a, T>
 where
     T: Hash,
 {
@@ -232,7 +234,7 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> PartialEq for SliceVec<'a, T>
+impl<'a, T: Sized + Copy> PartialEq for FixedSliceVec<'a, T>
 where
     T: PartialEq,
 {
@@ -242,7 +244,7 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> PartialEq<[T]> for SliceVec<'a, T>
+impl<'a, T: Sized + Copy> PartialEq<[T]> for FixedSliceVec<'a, T>
 where
     T: PartialEq,
 {
@@ -252,37 +254,37 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> Eq for SliceVec<'a, T> where T: Eq {}
+impl<'a, T: Sized + Copy> Eq for FixedSliceVec<'a, T> where T: Eq {}
 
-impl<'a, T: Sized + Copy> Borrow<[T]> for SliceVec<'a, T> {
+impl<'a, T: Sized + Copy> Borrow<[T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn borrow(&self) -> &[T] {
         self
     }
 }
 
-impl<'a, T: Sized + Copy> BorrowMut<[T]> for SliceVec<'a, T> {
+impl<'a, T: Sized + Copy> BorrowMut<[T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn borrow_mut(&mut self) -> &mut [T] {
         self
     }
 }
 
-impl<'a, T: Sized + Copy> AsRef<[T]> for SliceVec<'a, T> {
+impl<'a, T: Sized + Copy> AsRef<[T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn as_ref(&self) -> &[T] {
         self
     }
 }
 
-impl<'a, T: Sized + Copy> AsMut<[T]> for SliceVec<'a, T> {
+impl<'a, T: Sized + Copy> AsMut<[T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn as_mut(&mut self) -> &mut [T] {
         self
     }
 }
 
-impl<'a, T: Sized + Copy> core::fmt::Debug for SliceVec<'a, T>
+impl<'a, T: Sized + Copy> core::fmt::Debug for FixedSliceVec<'a, T>
 where
     T: core::fmt::Debug,
 {
@@ -292,12 +294,12 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> PartialOrd for SliceVec<'a, T>
+impl<'a, T: Sized + Copy> PartialOrd for FixedSliceVec<'a, T>
 where
     T: PartialOrd,
 {
     #[inline]
-    fn partial_cmp(&self, other: &SliceVec<'a, T>) -> Option<core::cmp::Ordering> {
+    fn partial_cmp(&self, other: &FixedSliceVec<'a, T>) -> Option<core::cmp::Ordering> {
         (**self).partial_cmp(other)
     }
 
@@ -322,7 +324,7 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> Deref for SliceVec<'a, T> {
+impl<'a, T: Sized + Copy> Deref for FixedSliceVec<'a, T> {
     type Target = [T];
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -330,7 +332,7 @@ impl<'a, T: Sized + Copy> Deref for SliceVec<'a, T> {
     }
 }
 
-impl<'a, T: Sized + Copy> DerefMut for SliceVec<'a, T> {
+impl<'a, T: Sized + Copy> DerefMut for FixedSliceVec<'a, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe { core::slice::from_raw_parts_mut(self.storage.as_mut_ptr() as *mut T, self.len) }
@@ -344,7 +346,7 @@ mod tests {
     #[test]
     fn from_uninit() {
         let mut data: [MaybeUninit<u8>; 32] = unsafe { MaybeUninit::uninit().assume_init() };
-        let mut sv: SliceVec<u8> = (&mut data[..]).into();
+        let mut sv: FixedSliceVec<u8> = (&mut data[..]).into();
         assert_eq!(0, sv.len());
         assert_eq!(32, sv.capacity());
         assert!(sv.is_empty());
@@ -369,7 +371,7 @@ mod tests {
     #[test]
     fn from_init() {
         let mut data = [2, 7, 1, 9, 8, 3];
-        let mut sv: SliceVec<u8> = (&mut data[..]).into();
+        let mut sv: FixedSliceVec<u8> = (&mut data[..]).into();
         assert_eq!(6, sv.len());
         assert_eq!(6, sv.capacity());
         assert_eq!(Some(3), sv.pop());
@@ -382,7 +384,7 @@ mod tests {
     #[test]
     fn happy_path_from_bytes() {
         let mut data = [0u8; 31];
-        let mut sv: SliceVec<usize> = SliceVec::from_bytes(&mut data[..]);
+        let mut sv: FixedSliceVec<usize> = FixedSliceVec::from_bytes(&mut data[..]);
         assert!(sv.is_empty());
         // capacity might be 0 if miri messes with the align-ability of pointers
         if sv.capacity() > 0 {
@@ -403,11 +405,11 @@ mod tests {
             for len in 0..original_len - i {
                 let storage = &mut data[i..i + len];
                 let storage_len = storage.len();
-                let (prefix, slice_vec, suffix): (_, SliceVec<u16>, _) =
-                    SliceVec::align_from_bytes(storage);
+                let (prefix, fixed_slice_vec, suffix): (_, FixedSliceVec<u16>, _) =
+                    FixedSliceVec::align_from_bytes(storage);
                 assert_eq!(
                     storage_len,
-                    prefix.len() + 2 * slice_vec.capacity() + suffix.len()
+                    prefix.len() + 2 * fixed_slice_vec.capacity() + suffix.len()
                 );
             }
         }

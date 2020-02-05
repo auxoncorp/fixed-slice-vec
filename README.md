@@ -1,6 +1,6 @@
-# slice-vec
+# fixed-slice-vec
 
-`SliceVec` is a dynamic length Vec with runtime-determined maximum capacity backed by a slice.
+`FixedSliceVec` is a dynamic length Vec with runtime-determined maximum capacity backed by a slice.
 
 ### Overview
 
@@ -12,29 +12,29 @@ possible backing bytes of storage is unknown until runtime.
 
 ### Getting Started
 
-`slice-vec` is a Rust library, built and tested via Cargo. It
+`fixed-slice-vec` is a Rust library, built and tested via Cargo. It
 has no dependencies outside of the Rust core library.
 
-To add `slice-vec` to your Rust project, add a dependency to it
+To add `fixed-slice-vec` to your Rust project, add a dependency to it
 in your Cargo.toml file.
 
 ```toml
-slice-vec = { git = "ssh://git@github.com/auxoncorp/slice-vec.git" }
+fixed-slice-vec = "0.2"
 ```
 
 ### Usage
 
-#### SliceVec
+#### FixedSliceVec
 
-In your Rust project source code, you can create a SliceVec a number of ways (see
-the project Rust API docs for details).
+In your Rust project source code, you can create a FixedSliceVec a number of
+ways (see the project Rust API docs for details).
 The most common form of construction is from a slice of bare bytes.
 
 ```rust
-use slice_vec::SliceVec;
+use fixed_slice_vec::FixedSliceVec;
 let mut bytes = [0u8; 1024];
 let byte_slice = &mut bytes[..512];
-let mut vec: SliceVec<f64> = SliceVec::from_bytes(byte_slice);
+let mut vec: FixedSliceVec<f64> = FixedSliceVec::from_bytes(byte_slice);
 
 assert_eq!(0, vec.len());
 assert!(vec.capacity() >= 63, "The exact capacity will depend on source-slice alignment");
@@ -46,16 +46,39 @@ vec.clear();
 assert!(vec.is_empty());
 ```
 
-Note that the types stored in a `SliceVec` must be have the `Copy`
+Note that the types stored in a `FixedSliceVec` must be have the `Copy`
 marker trait constraint.
 
-#### slice_single module
+#### single module
 
-As a companion to `SliceVec`, the `slice_single` submodule provides
+As a companion to `FixedSliceVec`, the `single` submodule provides
 functions for working with individual Rust values backed by arbitrary
 byte slices. See the API Docs for details and examples.
+
+#### Comparison
+
+Several other `Vec`-like crates exist and should be considered
+as possible alternatives to `FixedSliceVec`.
+
+* The standard library's [Vec](https://doc.rust-lang.org/std/vec/struct.Vec.html)
+has a runtime dynamic capacity backed by an allocator. This should probably
+be your first choice if you have access to an allocator.
+* [ArrayVec](https://crates.io/crates/arrayvec) has a compile-time
+fixed capacity. It is widely used and available on stable.
+* [StaticVec](https://crates.io/crates/staticvec) has a compile-time
+fixed capacity. It uses recent const generic features and is currently
+nightly-only.
+* [SliceVec](https://crates.io/crates/slicevec) has runtime fixed capacity.
+This is the closest in its target use case to `FixedSliceVec`. We
+only discovered it existed after developing `FixedSliceVec`, so there's some
+evidence of convergent design or needs. It appears largely
+unmaintained over the last few years, and does not make use of the
+[MaybeUninit](https://doc.rust-lang.org/std/mem/union.MaybeUninit.html)
+pattern for handling uninitialized data in Rust. Presently it supports a few
+more of the convenience methods available in standard `Vec` than
+`FixedSliceVec`. It does not support creating an instance from raw bytes.
+
 
 ### License
 
 Copyright 2020 Auxon Corporation, released under the [Apache 2.0 license](./LICENSE).
-
