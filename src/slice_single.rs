@@ -73,6 +73,9 @@ where
 pub enum SplitUninitError {
     /// Zero sized types shouldn't be placed anywhere into a byte slice anyhow.
     ZeroSizedTypesUnsupported,
+    /// Could not calculate a valid alignment offset from the given the
+    /// starting point which would result in a properly-aligned value.
+    Unalignable,
     /// Could not theoretically fit the target value into the provided byte slice
     /// due to a combination of the type's alignment and size.
     InsufficientSpace,
@@ -119,7 +122,17 @@ pub fn split_uninit_from_uninit_bytes<T>(
     }
     let ptr = destination.as_mut_ptr();
     let offset = ptr.align_offset(align_of::<T>());
-    if offset + size_of::<T>() > destination.len() {
+    if offset == core::usize::MAX {
+        return Err(SplitUninitError::Unalignable);
+    }
+    if offset > destination.len() {
+        return Err(SplitUninitError::InsufficientSpace);
+    }
+    if let Some(end) = offset.checked_add(size_of::<T>()) {
+        if end > destination.len() {
+            return Err(SplitUninitError::InsufficientSpace);
+        }
+    } else {
         return Err(SplitUninitError::InsufficientSpace);
     }
     let (prefix, rest) = destination.split_at_mut(offset);
@@ -198,7 +211,10 @@ mod tests {
     fn split_not_enough_space_detected() {
         let mut bytes = [0u8; 64];
         if let Err(e) = split_uninit_from_bytes::<TooBig>(&mut bytes[..]) {
-            assert_eq!(SplitUninitError::InsufficientSpace, e);
+            match e {
+                SplitUninitError::InsufficientSpace | SplitUninitError::Unalignable => (),
+                _ => panic!("Unexpected error kind"),
+            }
         } else {
             panic!("Expected an err");
         }
@@ -209,7 +225,10 @@ mod tests {
         let mut uninit_bytes: [MaybeUninit<u8>; 64] =
             unsafe { MaybeUninit::uninit().assume_init() };
         if let Err(e) = split_uninit_from_uninit_bytes::<TooBig>(&mut uninit_bytes[..]) {
-            assert_eq!(SplitUninitError::InsufficientSpace, e);
+            match e {
+                SplitUninitError::InsufficientSpace | SplitUninitError::Unalignable => (),
+                _ => panic!("Unexpected error kind"),
+            }
         } else {
             panic!("Expected an err");
         }
@@ -221,10 +240,11 @@ mod tests {
         if let Err(e) = embed(&mut bytes[..], |_| -> Result<Colossal, ()> {
             Ok(Colossal::default())
         }) {
-            assert_eq!(
-                EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace),
-                e
-            );
+            match e {
+                EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)
+                | EmbedValueError::SplitUninitError(SplitUninitError::Unalignable) => (),
+                _ => panic!("Unexpected error kind"),
+            }
         } else {
             panic!("Expected an err");
         }
@@ -237,10 +257,11 @@ mod tests {
         if let Err(e) = embed_uninit(&mut uninit_bytes[..], |_| -> Result<Colossal, ()> {
             Ok(Colossal::default())
         }) {
-            assert_eq!(
-                EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace),
-                e
-            );
+            match e {
+                EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)
+                | EmbedValueError::SplitUninitError(SplitUninitError::Unalignable) => (),
+                _ => panic!("Unexpected error kind"),
+            }
         } else {
             panic!("Expected an err");
         }
@@ -249,8 +270,11 @@ mod tests {
     #[test]
     fn happy_path_split() {
         let mut bytes = [0u8; 512];
-        let (prefix, _large_ref, suffix) =
-            split_uninit_from_bytes::<Large>(&mut bytes[..]).unwrap();
+        let (prefix, _large_ref, suffix) = match split_uninit_from_bytes::<Large>(&mut bytes[..]) {
+            Ok(r) => r,
+            Err(SplitUninitError::Unalignable) => return (), // Most likely MIRI messing with align-ability
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        };
         assert_eq!(
             prefix.len() + core::mem::size_of::<Large>() + suffix.len(),
             bytes.len()
@@ -262,7 +286,11 @@ mod tests {
         let mut uninit_bytes: [MaybeUninit<u8>; 512] =
             unsafe { MaybeUninit::uninit().assume_init() };
         let (prefix, _large_ref, suffix) =
-            split_uninit_from_uninit_bytes::<Large>(&mut uninit_bytes[..]).unwrap();
+            match split_uninit_from_uninit_bytes::<Large>(&mut uninit_bytes[..]) {
+                Ok(r) => r,
+                Err(SplitUninitError::Unalignable) => return (), // Most likely MIRI messing with align-ability
+                Err(e) => panic!("Unexpected error: {:?}", e),
+            };
         assert_eq!(
             prefix.len() + core::mem::size_of::<Large>() + suffix.len(),
             uninit_bytes.len()
@@ -273,15 +301,19 @@ mod tests {
     fn happy_path_embed() {
         const BACKING_BYTES_MAX_SIZE: usize = 512;
         let mut bytes = [2u8; BACKING_BYTES_MAX_SIZE];
-        let large_ref = embed(&mut bytes[..], |b| -> Result<Large, ()> {
+        let large_ref = match embed(&mut bytes[..], |b| -> Result<Large, ()> {
             assert!(b.iter().all(|b| *b == 2));
             let mut l = Large::default();
             l.medium[0] = 3;
             l.medium[1] = 1;
             l.medium[2] = 4;
             Ok(l)
-        })
-        .unwrap();
+        }) {
+            Ok(r) => r,
+            Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => return (), // Most likely MIRI messing with align-ability
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        };
+
         assert_eq!(3, large_ref.medium[0]);
         assert_eq!(1, large_ref.medium[1]);
         assert_eq!(4, large_ref.medium[2]);
@@ -291,14 +323,17 @@ mod tests {
         const BACKING_BYTES_MAX_SIZE: usize = 512;
         let mut uninit_bytes: [MaybeUninit<u8>; BACKING_BYTES_MAX_SIZE] =
             unsafe { MaybeUninit::uninit().assume_init() };
-        let large_ref = embed_uninit(&mut uninit_bytes[..], |_| -> Result<Large, ()> {
+        let large_ref = match embed_uninit(&mut uninit_bytes[..], |_| -> Result<Large, ()> {
             let mut l = Large::default();
             l.medium[0] = 3;
             l.medium[1] = 1;
             l.medium[2] = 4;
             Ok(l)
-        })
-        .unwrap();
+        }) {
+            Ok(r) => r,
+            Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => return (), // Most likely MIRI messing with align-ability
+            Err(e) => panic!("Unexpected error: {:?}", e),
+        };
         assert_eq!(3, large_ref.medium[0]);
         assert_eq!(1, large_ref.medium[1]);
         assert_eq!(4, large_ref.medium[2]);

@@ -384,9 +384,11 @@ mod tests {
         let mut data = [0u8; 31];
         let mut sv: SliceVec<usize> = SliceVec::from_bytes(&mut data[..]);
         assert!(sv.is_empty());
-        assert!(sv.capacity() > 0);
-        for i in 0..sv.capacity() {
-            assert_eq!(Ok(()), sv.try_push(i));
+        // capacity might be 0 if miri messes with the align-ability of pointers
+        if sv.capacity() > 0 {
+            for i in 0..sv.capacity() {
+                assert_eq!(Ok(()), sv.try_push(i));
+            }
         }
         assert!(sv.is_full());
     }
