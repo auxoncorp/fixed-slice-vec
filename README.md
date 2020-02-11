@@ -46,9 +46,6 @@ vec.clear();
 assert!(vec.is_empty());
 ```
 
-Note that the types stored in a `FixedSliceVec` must be have the `Copy`
-marker trait constraint.
-
 #### single module
 
 As a companion to `FixedSliceVec`, the `single` submodule provides

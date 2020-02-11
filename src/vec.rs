@@ -10,7 +10,7 @@ use core::ops::{Deref, DerefMut};
 ///
 /// The maximum length (the capacity) is fixed at runtime to the length of the
 /// provided storage slice.
-pub struct FixedSliceVec<'a, T: Sized + Copy> {
+pub struct FixedSliceVec<'a, T: Sized> {
     /// Backing storage, provides capacity
     storage: &'a mut [MaybeUninit<T>],
     /// The number of items that have been
@@ -18,7 +18,13 @@ pub struct FixedSliceVec<'a, T: Sized + Copy> {
     len: usize,
 }
 
-impl<'a, T: Sized + Copy> FixedSliceVec<'a, T> {
+impl<'a, T: Sized> Drop for FixedSliceVec<'a, T> {
+    fn drop(&mut self) {
+        self.clear();
+    }
+}
+
+impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// Create a SliceVec backed by a slice of possibly-uninitialized data.
     /// The backing storage slice is used as capacity for Vec-like operations,
     ///
@@ -164,17 +170,21 @@ impl<'a, T: Sized + Copy> FixedSliceVec<'a, T> {
             return None;
         }
         let upcoming_len = self.len - 1;
-        let v = Some(unsafe { self.storage[upcoming_len].assume_init() });
+        let v = Some(unsafe {
+            let item_slice = &self.storage[upcoming_len..self.len];
+            (item_slice.as_ptr() as *const T).read()
+        });
         self.len = upcoming_len;
         v
     }
 
     /// Removes the SliceVec's tracking of all items in it while retaining the
-    /// same capacity. Note the utter lack of an attempt to drop any of the
-    /// now-inaccessible slice content. Should be safe because we presently limit
-    /// the item type to Copy types.
+    /// same capacity.
     #[inline]
     pub fn clear(&mut self) {
+        unsafe {
+            (self.as_mut_slice() as *mut [T]).drop_in_place();
+        }
         self.len = 0;
     }
 
@@ -195,7 +205,7 @@ impl<'a, T: Sized + Copy> FixedSliceVec<'a, T> {
 
 /// Error that occurs when a call to `try_push` fails due
 /// to insufficient capacity in the SliceVec.
-#[derive(Clone, Copy, PartialEq, PartialOrd, Eq, Ord)]
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
 pub struct TryPushError<T>(pub T);
 
 impl<T> core::fmt::Debug for TryPushError<T> {
@@ -204,14 +214,14 @@ impl<T> core::fmt::Debug for TryPushError<T> {
     }
 }
 
-impl<'a, T: Sized + Copy> From<&'a mut [MaybeUninit<T>]> for FixedSliceVec<'a, T> {
+impl<'a, T: Sized> From<&'a mut [MaybeUninit<T>]> for FixedSliceVec<'a, T> {
     #[inline]
     fn from(v: &'a mut [MaybeUninit<T>]) -> Self {
         FixedSliceVec { storage: v, len: 0 }
     }
 }
 
-impl<'a, T: Sized + Copy> From<&'a mut [T]> for FixedSliceVec<'a, T> {
+impl<'a, T: Sized> From<&'a mut [T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn from(v: &'a mut [T]) -> Self {
         let len = v.len();
@@ -224,7 +234,7 @@ impl<'a, T: Sized + Copy> From<&'a mut [T]> for FixedSliceVec<'a, T> {
     }
 }
 
-impl<'a, T: Sized + Copy> Hash for FixedSliceVec<'a, T>
+impl<'a, T: Sized> Hash for FixedSliceVec<'a, T>
 where
     T: Hash,
 {
@@ -234,7 +244,7 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> PartialEq for FixedSliceVec<'a, T>
+impl<'a, T: Sized> PartialEq for FixedSliceVec<'a, T>
 where
     T: PartialEq,
 {
@@ -244,7 +254,7 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> PartialEq<[T]> for FixedSliceVec<'a, T>
+impl<'a, T: Sized> PartialEq<[T]> for FixedSliceVec<'a, T>
 where
     T: PartialEq,
 {
@@ -254,37 +264,37 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> Eq for FixedSliceVec<'a, T> where T: Eq {}
+impl<'a, T: Sized> Eq for FixedSliceVec<'a, T> where T: Eq {}
 
-impl<'a, T: Sized + Copy> Borrow<[T]> for FixedSliceVec<'a, T> {
+impl<'a, T: Sized> Borrow<[T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn borrow(&self) -> &[T] {
         self
     }
 }
 
-impl<'a, T: Sized + Copy> BorrowMut<[T]> for FixedSliceVec<'a, T> {
+impl<'a, T: Sized> BorrowMut<[T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn borrow_mut(&mut self) -> &mut [T] {
         self
     }
 }
 
-impl<'a, T: Sized + Copy> AsRef<[T]> for FixedSliceVec<'a, T> {
+impl<'a, T: Sized> AsRef<[T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn as_ref(&self) -> &[T] {
         self
     }
 }
 
-impl<'a, T: Sized + Copy> AsMut<[T]> for FixedSliceVec<'a, T> {
+impl<'a, T: Sized> AsMut<[T]> for FixedSliceVec<'a, T> {
     #[inline]
     fn as_mut(&mut self) -> &mut [T] {
         self
     }
 }
 
-impl<'a, T: Sized + Copy> core::fmt::Debug for FixedSliceVec<'a, T>
+impl<'a, T: Sized> core::fmt::Debug for FixedSliceVec<'a, T>
 where
     T: core::fmt::Debug,
 {
@@ -294,7 +304,7 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> PartialOrd for FixedSliceVec<'a, T>
+impl<'a, T: Sized> PartialOrd for FixedSliceVec<'a, T>
 where
     T: PartialOrd,
 {
@@ -324,7 +334,7 @@ where
     }
 }
 
-impl<'a, T: Sized + Copy> Deref for FixedSliceVec<'a, T> {
+impl<'a, T: Sized> Deref for FixedSliceVec<'a, T> {
     type Target = [T];
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -332,7 +342,7 @@ impl<'a, T: Sized + Copy> Deref for FixedSliceVec<'a, T> {
     }
 }
 
-impl<'a, T: Sized + Copy> DerefMut for FixedSliceVec<'a, T> {
+impl<'a, T: Sized> DerefMut for FixedSliceVec<'a, T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut [T] {
         unsafe { core::slice::from_raw_parts_mut(self.storage.as_mut_ptr() as *mut T, self.len) }
