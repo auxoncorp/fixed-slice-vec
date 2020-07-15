@@ -12,10 +12,10 @@ use core::ops::{Deref, DerefMut};
 /// provided storage slice.
 pub struct FixedSliceVec<'a, T: Sized> {
     /// Backing storage, provides capacity
-    storage: &'a mut [MaybeUninit<T>],
+    pub(crate) storage: &'a mut [MaybeUninit<T>],
     /// The number of items that have been
     /// initialized
-    len: usize,
+    pub(crate) len: usize,
 }
 
 impl<'a, T: Sized> Drop for FixedSliceVec<'a, T> {

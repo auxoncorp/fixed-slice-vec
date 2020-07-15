@@ -81,6 +81,7 @@
 #![deny(warnings)]
 #![deny(missing_docs)]
 
+pub mod ring;
 pub mod single;
 pub mod vec;
 
