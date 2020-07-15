@@ -182,10 +182,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
             return None;
         }
         let upcoming_len = self.len - 1;
-        let v = Some(unsafe {
-            let item_slice = &self.storage[upcoming_len..self.len];
-            (item_slice.as_ptr() as *const T).read()
-        });
+        let v = Some(unsafe { self.storage[upcoming_len].as_ptr().read() });
         self.len = upcoming_len;
         v
     }
