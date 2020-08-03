@@ -28,7 +28,7 @@ impl<E> From<SplitUninitError> for EmbedValueError<E> {
 #[inline]
 pub fn embed<'a, T, F, E>(destination: &'a mut [u8], f: F) -> Result<&'a mut T, EmbedValueError<E>>
 where
-    F: Fn(&'a mut [u8]) -> Result<T, E>,
+    F: FnOnce(&'a mut [u8]) -> Result<T, E>,
 {
     debug_assert!(!destination.as_ptr().is_null());
     let (_prefix, uninit_ref, suffix) = split_uninit_from_bytes(destination)?;
