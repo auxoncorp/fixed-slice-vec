@@ -1,4 +1,4 @@
-//! SliceVec is a structure for defining variably populated vectors backed
+//! FixedSliceVec is a structure for defining variably populated vectors backed
 //! by a slice of storage capacity.
 use core::borrow::{Borrow, BorrowMut};
 use core::convert::From;
@@ -25,21 +25,21 @@ impl<'a, T: Sized> Drop for FixedSliceVec<'a, T> {
 }
 
 impl<'a, T: Sized> FixedSliceVec<'a, T> {
-    /// Create a SliceVec backed by a slice of possibly-uninitialized data.
+    /// Create a FixedSliceVec backed by a slice of possibly-uninitialized data.
     /// The backing storage slice is used as capacity for Vec-like operations,
     ///
-    /// The initial length of the SliceVec is 0.
+    /// The initial length of the FixedSliceVec is 0.
     #[inline]
     pub fn new(storage: &'a mut [MaybeUninit<T>]) -> Self {
         FixedSliceVec { storage, len: 0 }
     }
 
-    /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
+    /// Create a well-aligned FixedSliceVec backed by a slice of the provided bytes.
     /// The slice is as large as possible given the item type and alignment of
     /// the provided bytes.
     ///
     /// If you are interested in recapturing the prefix and suffix bytes on
-    /// either side of the carved-out SliceVec buffer, consider using `align_from_bytes` instead:
+    /// either side of the carved-out FixedSliceVec buffer, consider using `align_from_bytes` instead:
     ///
     /// ```
     /// # let mut bytes = [3u8, 1, 4, 1, 5, 9];
@@ -48,19 +48,19 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// ```
     ///
     /// The bytes are treated as if they might be uninitialized, so even if `T` is `u8`,
-    /// the length of the returned `SliceVec` will be zero.
+    /// the length of the returned `FixedSliceVec` will be zero.
     #[inline]
     pub fn from_bytes(bytes: &'a mut [u8]) -> FixedSliceVec<'a, T> {
         let (_prefix, fixed_slice_vec, _suffix) = FixedSliceVec::align_from_bytes(bytes);
         fixed_slice_vec
     }
 
-    /// Create a well-aligned SliceVec backed by a slice of the provided
+    /// Create a well-aligned FixedSliceVec backed by a slice of the provided
     /// uninitialized bytes. The typed slice is as large as possible given its
     /// item type and the alignment of the provided bytes.
     ///
     /// If you are interested in recapturing the prefix and suffix bytes on
-    /// either side of the carved-out SliceVec buffer, consider using `align_from_uninit_bytes`:
+    /// either side of the carved-out FixedSliceVec buffer, consider using `align_from_uninit_bytes`:
     ///
     #[inline]
     pub fn from_uninit_bytes(bytes: &'a mut [MaybeUninit<u8>]) -> FixedSliceVec<'a, T> {
@@ -68,10 +68,10 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         fixed_slice_vec
     }
 
-    /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
+    /// Create a well-aligned FixedSliceVec backed by a slice of the provided bytes.
     /// The slice is as large as possible given the item type and alignment of
     /// the provided bytes. Returns the unused prefix and suffix bytes on
-    /// either side of the carved-out SliceVec.
+    /// either side of the carved-out FixedSliceVec.
     ///
     /// ```
     /// let mut bytes = [3u8, 1, 4, 1, 5, 9];
@@ -80,7 +80,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// ```
     ///
     /// The bytes are treated as if they might be uninitialized, so even if `T` is `u8`,
-    /// the length of the returned `SliceVec` will be zero.
+    /// the length of the returned `FixedSliceVec` will be zero.
     #[inline]
     pub fn align_from_bytes(
         bytes: &'a mut [u8],
@@ -89,10 +89,10 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         (prefix, FixedSliceVec { storage, len: 0 }, suffix)
     }
 
-    /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
+    /// Create a well-aligned FixedSliceVec backed by a slice of the provided bytes.
     /// The slice is as large as possible given the item type and alignment of
     /// the provided bytes. Returns the unused prefix and suffix bytes on
-    /// either side of the carved-out SliceVec.
+    /// either side of the carved-out FixedSliceVec.
     ///
     /// ```
     /// # use core::mem::MaybeUninit;
@@ -102,7 +102,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// let vec: fixed_slice_vec::FixedSliceVec<u16> = vec;
     /// ```
     ///
-    /// The length of the returned `SliceVec` will be zero.
+    /// The length of the returned `FixedSliceVec` will be zero.
     #[inline]
     pub fn align_from_uninit_bytes(
         bytes: &'a mut [MaybeUninit<u8>],
@@ -115,14 +115,14 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         (prefix, FixedSliceVec { storage, len: 0 }, suffix)
     }
 
-    /// The length of the SliceVec. The number of initialized
+    /// The length of the FixedSliceVec. The number of initialized
     /// values that have been added to it.
     #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
-    /// The maximum amount of items that can live in this SliceVec
+    /// The maximum amount of items that can live in this FixedSliceVec
     #[inline]
     pub fn capacity(&self) -> usize {
         self.storage.len()
@@ -134,26 +134,26 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         self.len == 0
     }
 
-    /// Returns true if the SliceVec is full to capacity.
+    /// Returns true if the FixedSliceVec is full to capacity.
     #[inline]
     pub fn is_full(&self) -> bool {
         self.len == self.capacity()
     }
 
-    /// Attempt to add a value to the SliceVec.
+    /// Attempt to add a value to the FixedSliceVec.
     ///
     /// Returns an error if there is not enough capacity to hold another item.
     #[inline]
-    pub fn try_push(&mut self, value: T) -> Result<(), TryPushError<T>> {
+    pub fn try_push(&mut self, value: T) -> Result<(), StorageError<T>> {
         if self.is_full() {
-            return Err(TryPushError(value));
+            return Err(StorageError(value));
         }
         self.storage[self.len] = MaybeUninit::new(value);
         self.len += 1;
         Ok(())
     }
 
-    /// Attempt to add a value to the SliceVec.
+    /// Attempt to add a value to the FixedSliceVec.
     ///
     /// # Panics
     ///
@@ -163,7 +163,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         self.try_push(value).unwrap();
     }
 
-    /// Remove the last item from the SliceVec.
+    /// Remove the last item from the FixedSliceVec.
     #[inline]
     pub fn pop(&mut self) -> Option<T> {
         if self.len == 0 {
@@ -178,7 +178,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         v
     }
 
-    /// Removes the SliceVec's tracking of all items in it while retaining the
+    /// Removes the FixedSliceVec's tracking of all items in it while retaining the
     /// same capacity.
     #[inline]
     pub fn clear(&mut self) {
@@ -189,28 +189,29 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     }
 
     /// Obtain an immutable slice view on the initialized portion of the
-    /// SliceVec.
+    /// FixedSliceVec.
     #[inline]
     pub fn as_slice(&self) -> &[T] {
         self
     }
 
     /// Obtain a mutable slice view on the initialized portion of the
-    /// SliceVec.
+    /// FixedSliceVec.
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self
     }
 }
 
-/// Error that occurs when a call to `try_push` fails due
-/// to insufficient capacity in the SliceVec.
+/// Error that occurs when a call that attempts to increase
+/// the number of items in the FixedSliceVec fails
+/// due to insufficient storage capacity.
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
-pub struct TryPushError<T>(pub T);
+pub struct StorageError<T>(pub T);
 
-impl<T> core::fmt::Debug for TryPushError<T> {
+impl<T> core::fmt::Debug for StorageError<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        f.write_str("Push failed because SliceVec was full")
+        f.write_str("Push failed because FixedSliceVec was full")
     }
 }
 
