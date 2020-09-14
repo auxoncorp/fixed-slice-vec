@@ -80,6 +80,7 @@
 #![no_std]
 #![deny(warnings)]
 #![deny(missing_docs)]
+#![deny(clippy::all)]
 
 pub mod single;
 pub mod vec;

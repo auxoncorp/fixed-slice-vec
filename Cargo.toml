@@ -10,3 +10,7 @@ readme = "README.md"
 description = "`FixedSliceVec` is a dynamic length Vec with runtime-determined maximum capacity backed by a slice."
 keywords = ["vec", "vector", "no_std", "slice", "no-std"]
 categories = ["embedded", "data-structures", "no-std"]
+
+[dev-dependencies]
+arrayvec = "0.5"
+proptest = "0.9.6"
