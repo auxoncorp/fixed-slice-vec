@@ -28,6 +28,8 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// Create a FixedSliceVec backed by a slice of possibly-uninitialized data.
     /// The backing storage slice is used as capacity for Vec-like operations,
     ///
+    /// If you would like to start with initialized data instead, use `From<&mut [T]>`.
+    ///
     /// The initial length of the FixedSliceVec is 0.
     #[inline]
     pub fn new(storage: &'a mut [MaybeUninit<T>]) -> Self {
@@ -113,6 +115,69 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     ) {
         let (prefix, storage, suffix) = unsafe { bytes.align_to_mut() };
         (prefix, FixedSliceVec { storage, len: 0 }, suffix)
+    }
+
+    /// Returns an unsafe mutable pointer to the FixedSliceVec's buffer.
+    ///
+    /// The caller must ensure that the FixedSliceVec and the backing
+    /// storage data for the FixedSliceVec (provided at construction)
+    /// outlives the pointer this function returns.
+    ///
+    /// Furthermore, the contents of the buffer are not guaranteed
+    /// to have been initialized at indices < len.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut storage = [9u16, 9, 9, 9];
+    /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from(&mut storage[..]);
+    /// let size = x.len();
+    /// let x_ptr = x.as_mut_ptr();
+    ///
+    /// // Set elements via raw pointer writes.
+    /// unsafe {
+    ///     for i in 0..size {
+    ///         *x_ptr.add(i) = i as u16;
+    ///     }
+    /// }
+    /// assert_eq!(&*x, &[0,1,2,3]);
+    /// ```
+    #[inline]
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.storage.as_mut_ptr() as *mut T
+    }
+    /// Returns a raw pointer to the FixedSliceVec's buffer.
+    ///
+    /// The caller must ensure that the FixedSliceVec and the backing
+    /// storage data for the FixedSliceVec (provided at construction)
+    /// outlives the pointer this function returns.
+    ///
+    /// Furthermore, the contents of the buffer are not guaranteed
+    /// to have been initialized at indices < len.
+    ///
+    /// The caller must also ensure that the memory the pointer (non-transitively) points to
+    /// is never written to using this pointer or any pointer derived from it.
+    ///
+    /// If you need to mutate the contents of the slice with pointers, use [`as_mut_ptr`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut storage = [1, 2, 4];
+    /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from(&mut storage[..]);
+    /// let x_ptr = x.as_ptr();
+    ///
+    /// unsafe {
+    ///     for i in 0..x.len() {
+    ///         assert_eq!(*x_ptr.add(i), 1 << i);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// [`as_mut_ptr`]: #method.as_mut_ptr
+    #[inline]
+    pub fn as_ptr(&self) -> *const T {
+        self.storage.as_ptr() as *const T
     }
 
     /// The length of the FixedSliceVec. The number of initialized
@@ -424,5 +489,37 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn as_ptr_reveals_expected_internal_content() {
+        let mut storage = [0u8, 1, 2, 3];
+        let storage_copy = storage.clone();
+        let fsv = FixedSliceVec::from(&mut storage[..]);
+
+        let ptr = fsv.as_ptr();
+        for i in 0..fsv.len() {
+            assert_eq!(storage_copy[i], unsafe { *ptr.add(i) });
+        }
+
+        let mut fsv = fsv;
+        fsv[3] = 99;
+        assert_eq!(99, unsafe { *ptr.add(3) })
+    }
+
+    #[test]
+    fn as_mut_ptr_allows_changes_to_internal_content() {
+        let mut storage = [0u8, 2, 4, 8];
+        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+
+        let ptr = fsv.as_mut_ptr();
+        assert_eq!(8, unsafe { ptr.add(3).read() });
+        unsafe {
+            ptr.add(3).write(99);
+        }
+        assert_eq!(99, fsv[3]);
+
+        fsv[1] = 200;
+        assert_eq!(200, unsafe { ptr.add(1).read() });
     }
 }
