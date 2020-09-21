@@ -1,6 +1,7 @@
 use arrayvec::ArrayVec;
 use fixed_slice_vec::*;
 use std::mem::MaybeUninit;
+use std::panic::AssertUnwindSafe;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
@@ -36,6 +37,9 @@ trait VecLike {
     fn len(&self) -> usize {
         self.as_slice().len()
     }
+    fn truncate(&mut self, len: usize);
+    fn try_remove(&mut self, index: usize) -> Result<Self::Item, ()>;
+    fn try_swap_remove(&mut self, index: usize) -> Result<Self::Item, ()>;
 }
 
 impl<T> VecLike for Vec<T> {
@@ -76,6 +80,18 @@ impl<T> VecLike for Vec<T> {
 
     fn len(&self) -> usize {
         Vec::len(self)
+    }
+
+    fn truncate(&mut self, len: usize) {
+        Vec::truncate(self, len)
+    }
+
+    fn try_remove(&mut self, index: usize) -> Result<Self::Item, ()> {
+        std::panic::catch_unwind(AssertUnwindSafe(|| Vec::remove(self, index))).map_err(|_| ())
+    }
+
+    fn try_swap_remove(&mut self, index: usize) -> Result<Self::Item, ()> {
+        std::panic::catch_unwind(AssertUnwindSafe(|| Vec::swap_remove(self, index))).map_err(|_| ())
     }
 }
 
@@ -118,6 +134,18 @@ impl<'a, T> VecLike for &'a mut Vec<T> {
     fn len(&self) -> usize {
         Vec::len(self)
     }
+
+    fn truncate(&mut self, len: usize) {
+        Vec::truncate(self, len)
+    }
+
+    fn try_remove(&mut self, index: usize) -> Result<Self::Item, ()> {
+        std::panic::catch_unwind(AssertUnwindSafe(|| Vec::remove(self, index))).map_err(|_| ())
+    }
+
+    fn try_swap_remove(&mut self, index: usize) -> Result<Self::Item, ()> {
+        std::panic::catch_unwind(AssertUnwindSafe(|| Vec::swap_remove(self, index))).map_err(|_| ())
+    }
 }
 
 impl<'a, T> VecLike for FixedSliceVec<'a, T> {
@@ -148,6 +176,18 @@ impl<'a, T> VecLike for FixedSliceVec<'a, T> {
 
     fn as_mut_slice(&mut self) -> &mut [Self::Item] {
         self
+    }
+
+    fn truncate(&mut self, len: usize) {
+        FixedSliceVec::truncate(self, len)
+    }
+
+    fn try_remove(&mut self, index: usize) -> Result<Self::Item, ()> {
+        FixedSliceVec::try_remove(self, index).map_err(|_| ())
+    }
+
+    fn try_swap_remove(&mut self, index: usize) -> Result<Self::Item, ()> {
+        FixedSliceVec::try_swap_remove(self, index).map_err(|_| ())
     }
 }
 
@@ -189,6 +229,18 @@ impl<'a, T> VecLike for ArrayVec<[T; 32]> {
     fn len(&self) -> usize {
         ArrayVec::len(self)
     }
+
+    fn truncate(&mut self, len: usize) {
+        ArrayVec::truncate(self, len)
+    }
+
+    fn try_remove(&mut self, index: usize) -> Result<Self::Item, ()> {
+        ArrayVec::pop_at(self, index).ok_or_else(|| ())
+    }
+
+    fn try_swap_remove(&mut self, index: usize) -> Result<Self::Item, ()> {
+        ArrayVec::swap_pop(self, index).ok_or_else(|| ())
+    }
 }
 
 fn assert_vec_like_drops_items_when_dropped<V: VecLike<Item = DropCountingItem>>(v: V) {
@@ -213,6 +265,37 @@ fn drops_items_when_dropped() {
     assert_eq!(10, VecLike::capacity(&sv));
     assert_eq!(0, sv.len());
     assert_vec_like_drops_items_when_dropped(sv);
+}
+
+#[test]
+fn drops_items_when_truncate() {
+    assert_vec_like_drops_items_when_truncate(Vec::new());
+
+    let mut backing: [MaybeUninit<DropCountingItem>; 10] =
+        unsafe { MaybeUninit::uninit().assume_init() };
+    let sv: FixedSliceVec<_> = FixedSliceVec::new(&mut backing[..]);
+    assert_eq!(10, VecLike::capacity(&sv));
+    assert_eq!(0, sv.len());
+    assert_vec_like_drops_items_when_truncate(sv);
+}
+
+fn assert_vec_like_drops_items_when_truncate<V: VecLike<Item = DropCountingItem>>(v: V) {
+    let count = Arc::new(AtomicUsize::new(0));
+    let item_a = DropCountingItem {
+        drop_count: count.clone(),
+    };
+    let item_b = DropCountingItem {
+        drop_count: count.clone(),
+    };
+    {
+        let mut v = v;
+        v.push(item_a);
+        v.push(item_b);
+        assert_eq!(0, count.load(Ordering::SeqCst));
+        v.truncate(1);
+        assert_eq!(1, count.load(Ordering::SeqCst));
+    }
+    assert_eq!(2, count.load(Ordering::SeqCst));
 }
 
 fn assert_vec_like_drops_items_when_clear<V: VecLike<Item = DropCountingItem>>(v: V) {
@@ -284,14 +367,22 @@ pub mod vec_like_operations {
         Push(T),
         Pop,
         Clear,
+        Truncate(usize),
+        Remove(usize),
+        SwapRemove(usize),
     }
 
-    fn arbitrary_vec_like_op() -> impl Strategy<Value = VecLikeOp<u16>> {
+    fn arbitrary_vec_like_op(
+        max_expected_capacity: usize,
+    ) -> impl Strategy<Value = VecLikeOp<u16>> {
         // Weighted to avoid clearing so often that we only rarely encounter
         // border conditions
         prop_oneof! [
             20 => any::<u16>().prop_map(|v| VecLikeOp::Push(v)),
-            15 => Just(VecLikeOp::Pop),
+            10 => Just(VecLikeOp::Pop),
+            4 => (0..(max_expected_capacity*2)).prop_map(|v| VecLikeOp::Remove(v)),
+            4 => (0..(max_expected_capacity*2)).prop_map(|v| VecLikeOp::SwapRemove(v)),
+            4 => (0..(max_expected_capacity*2)).prop_map(|v| VecLikeOp::Truncate(v)),
             1 => Just(VecLikeOp::Clear),
         ]
     }
@@ -354,11 +445,54 @@ pub mod vec_like_operations {
                 }
                 VecLikeOp::Pop => {
                     let fs_result = fs_vec.pop();
-                    let std_result = other_vec.pop();
+                    let other_result = other_vec.pop();
                     prop_assert_eq!(
-                        std_result,
+                        other_result,
                         fs_result,
                         "Returned values from `pop` should be the same"
+                    );
+                }
+                VecLikeOp::Truncate(truncate_len) => {
+                    let prior_fs_length = fs_vec.len();
+                    let prior_other_length = other_vec.len();
+                    prop_assert_eq!(
+                        prior_fs_length,
+                        prior_other_length,
+                        "The 2 vecs had out-of-sync starting lengths"
+                    );
+                    fs_vec.truncate(truncate_len);
+                    other_vec.truncate(truncate_len);
+                    let posterior_fs_length = fs_vec.len();
+                    let posterior_other_length = other_vec.len();
+                    if truncate_len <= prior_fs_length {
+                        prop_assert_eq!(
+                            posterior_fs_length,
+                            truncate_len,
+                            "fsv did not truncate to the target len"
+                        );
+                        prop_assert_eq!(
+                            posterior_other_length,
+                            truncate_len,
+                            "other did not truncate to the target len"
+                        );
+                    }
+                }
+                VecLikeOp::Remove(index) => {
+                    let fs_result = VecLike::try_remove(&mut fs_vec, index);
+                    let other_result = VecLike::try_remove(other_vec, index);
+                    prop_assert_eq!(
+                        other_result,
+                        fs_result,
+                        "Returned values from `try_remove` should be the same"
+                    );
+                }
+                VecLikeOp::SwapRemove(index) => {
+                    let fs_result = VecLike::try_swap_remove(&mut fs_vec, index);
+                    let other_result = VecLike::try_swap_remove(other_vec, index);
+                    prop_assert_eq!(
+                        other_result,
+                        fs_result,
+                        "Returned values from `try_swap_remove` should be the same"
                     );
                 }
             }
@@ -371,7 +505,7 @@ pub mod vec_like_operations {
         #[test]
         #[cfg_attr(miri, ignore)]
         fn compare_vec_like_operations_against_std(
-            operations in proptest::collection::vec(arbitrary_vec_like_op(), 1..1000),
+            operations in proptest::collection::vec(arbitrary_vec_like_op(512), 1..1000),
             storage_bytes in proptest::collection::vec(Just(0u8), 0..1024)
         ) {
             let mut std_vec = Vec::new();
@@ -380,7 +514,7 @@ pub mod vec_like_operations {
         #[test]
         #[cfg_attr(miri, ignore)]
         fn compare_vec_like_operations_against_array_vec(
-            operations in proptest::collection::vec(arbitrary_vec_like_op(), 1..1000),
+            operations in proptest::collection::vec(arbitrary_vec_like_op(512), 1..1000),
             storage_bytes in proptest::collection::vec(Just(0u8), 0..1024)
         ) {
             let mut av_vec: ArrayVec<[u16; 32]> = ArrayVec::new();

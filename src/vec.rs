@@ -253,6 +253,95 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         self.len = 0;
     }
 
+    /// Shortens the FixedSliceVec, keeping the first `len` elements and dropping the rest.
+    ///
+    /// If len is greater than the current length, this has no effect.
+    /// Note that this method has no effect on the capacity of the FixedSliceVec.
+    #[inline]
+    pub fn truncate(&mut self, len: usize) {
+        if len > self.len {
+            return;
+        }
+        unsafe {
+            (&mut self.as_mut_slice()[len..] as *mut [T]).drop_in_place();
+        }
+        self.len = len;
+    }
+    /// Removes and returns the element at position `index` within the FixedSliceVec,
+    /// shifting all elements after it to the left.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds.
+    pub fn remove(&mut self, index: usize) -> T {
+        // Error message and overall impl strategy following along with std vec,
+        if index >= self.len {
+            panic!(
+                "removal index (is {}) should be < len (is {})",
+                index, self.len
+            );
+        }
+        unsafe { self.unchecked_remove(index) }
+    }
+
+    /// Removes and returns the element at position `index` within the FixedSliceVec,
+    /// shifting all elements after it to the left.
+    pub fn try_remove(&mut self, index: usize) -> Result<T, IndexError> {
+        if index >= self.len {
+            return Err(IndexError);
+        }
+        Ok(unsafe { self.unchecked_remove(index) })
+    }
+
+    /// Remove and return an element without checking if it's actually there.
+    #[inline]
+    unsafe fn unchecked_remove(&mut self, index: usize) -> T {
+        let ptr = self.as_mut_ptr().add(index);
+        let out = core::ptr::read(ptr);
+        core::ptr::copy(ptr.offset(1), ptr, self.len - index - 1);
+        self.len -= 1;
+        out
+    }
+    /// Removes an element from the vector and returns it.
+    ///
+    /// The removed element is replaced by the last element of the vector.
+    ///
+    /// This does not preserve ordering, but is O(1).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds.
+    pub fn swap_remove(&mut self, index: usize) -> T {
+        if index >= self.len {
+            panic!(
+                "swap_remove index (is {}) should be < len (is {})",
+                index, self.len
+            );
+        }
+        unsafe { self.unchecked_swap_remove(index) }
+    }
+    /// Removes an element from the vector and returns it.
+    ///
+    /// The removed element is replaced by the last element of the vector.
+    ///
+    /// This does not preserve ordering, but is O(1).
+    pub fn try_swap_remove(&mut self, index: usize) -> Result<T, IndexError> {
+        if index >= self.len {
+            return Err(IndexError);
+        }
+        Ok(unsafe { self.unchecked_swap_remove(index) })
+    }
+
+    /// swap_remove, without the length-checking
+    #[inline]
+    unsafe fn unchecked_swap_remove(&mut self, index: usize) -> T {
+        let target_ptr = self.as_mut_ptr().add(index);
+        let end_ptr = self.as_ptr().add(self.len - 1);
+        let end_value = core::ptr::read(end_ptr);
+        self.len -= 1;
+        core::ptr::replace(target_ptr, end_value)
+    }
+
     /// Obtain an immutable slice view on the initialized portion of the
     /// FixedSliceVec.
     #[inline]
@@ -277,6 +366,21 @@ pub struct StorageError<T>(pub T);
 impl<T> core::fmt::Debug for StorageError<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
         f.write_str("Push failed because FixedSliceVec was full")
+    }
+}
+
+/// Error that occurs when a call that attempts to access
+/// the FixedSliceVec in a manner that does not respect
+/// the current length of the vector, i.e. its current
+/// number of initialized items.
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
+pub struct IndexError;
+
+impl core::fmt::Debug for IndexError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        f.write_str(
+            "Access to the FixedSliceVec failed because an invalid index or length was provided",
+        )
     }
 }
 
@@ -521,5 +625,41 @@ mod tests {
 
         fsv[1] = 200;
         assert_eq!(200, unsafe { ptr.add(1).read() });
+    }
+
+    #[test]
+    fn manual_truncate() {
+        let mut storage = [0u8, 2, 4, 8];
+        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        fsv.truncate(100);
+        assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
+        fsv.truncate(2);
+        assert_eq!(&[0u8, 2], fsv.as_slice());
+        fsv.truncate(2);
+        assert_eq!(&[0u8, 2], fsv.as_slice());
+        fsv.truncate(0);
+        assert!(fsv.is_empty());
+    }
+
+    #[test]
+    fn manual_try_remove() {
+        let mut storage = [0u8, 2, 4, 8];
+        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        assert_eq!(Err(IndexError), fsv.try_remove(100));
+        assert_eq!(Err(IndexError), fsv.try_remove(4));
+        assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
+        assert_eq!(Ok(2), fsv.try_remove(1));
+        assert_eq!(&[0u8, 4, 8], fsv.as_slice());
+    }
+
+    #[test]
+    fn manual_try_swap_remove() {
+        let mut storage = [0u8, 2, 4, 8];
+        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        assert_eq!(Err(IndexError), fsv.try_swap_remove(100));
+        assert_eq!(Err(IndexError), fsv.try_swap_remove(4));
+        assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
+        assert_eq!(Ok(2), fsv.try_swap_remove(1));
+        assert_eq!(&[0u8, 8, 4], fsv.as_slice());
     }
 }

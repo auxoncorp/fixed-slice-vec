@@ -67,11 +67,11 @@
 //! This is the closest in its target use case to `FixedSliceVec`. We
 //! only discovered it existed after developing `FixedSliceVec`, so there's some
 //! evidence of convergent design or needs. It appears largely
-//! unmaintained over the last few years, and does not make use of the
+//! unmaintained over the last few years, does not make use of the
 //! [MaybeUninit](https://doc.rust-lang.org/std/mem/union.MaybeUninit.html)
-//! pattern for handling uninitialized data in Rust. Presently it supports a few
-//! more of the convenience methods available in standard `Vec` than
-//! `FixedSliceVec`. It does not support creating an instance from raw bytes.
+//! pattern for handling uninitialized data in Rust, and does not drop items
+//! correctly in some cases. It does not support creating an instance from raw bytes
+//! and requires `Default` elements for some operations.
 //!
 //!
 //! ## License
