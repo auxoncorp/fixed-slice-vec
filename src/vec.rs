@@ -1,4 +1,4 @@
-//! SliceVec is a structure for defining variably populated vectors backed
+//! FixedSliceVec is a structure for defining variably populated vectors backed
 //! by a slice of storage capacity.
 use core::borrow::{Borrow, BorrowMut};
 use core::convert::From;
@@ -25,21 +25,23 @@ impl<'a, T: Sized> Drop for FixedSliceVec<'a, T> {
 }
 
 impl<'a, T: Sized> FixedSliceVec<'a, T> {
-    /// Create a SliceVec backed by a slice of possibly-uninitialized data.
+    /// Create a FixedSliceVec backed by a slice of possibly-uninitialized data.
     /// The backing storage slice is used as capacity for Vec-like operations,
     ///
-    /// The initial length of the SliceVec is 0.
+    /// If you would like to start with initialized data instead, use `From<&mut [T]>`.
+    ///
+    /// The initial length of the FixedSliceVec is 0.
     #[inline]
     pub fn new(storage: &'a mut [MaybeUninit<T>]) -> Self {
         FixedSliceVec { storage, len: 0 }
     }
 
-    /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
+    /// Create a well-aligned FixedSliceVec backed by a slice of the provided bytes.
     /// The slice is as large as possible given the item type and alignment of
     /// the provided bytes.
     ///
     /// If you are interested in recapturing the prefix and suffix bytes on
-    /// either side of the carved-out SliceVec buffer, consider using `align_from_bytes` instead:
+    /// either side of the carved-out FixedSliceVec buffer, consider using `align_from_bytes` instead:
     ///
     /// ```
     /// # let mut bytes = [3u8, 1, 4, 1, 5, 9];
@@ -48,19 +50,19 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// ```
     ///
     /// The bytes are treated as if they might be uninitialized, so even if `T` is `u8`,
-    /// the length of the returned `SliceVec` will be zero.
+    /// the length of the returned `FixedSliceVec` will be zero.
     #[inline]
     pub fn from_bytes(bytes: &'a mut [u8]) -> FixedSliceVec<'a, T> {
         let (_prefix, fixed_slice_vec, _suffix) = FixedSliceVec::align_from_bytes(bytes);
         fixed_slice_vec
     }
 
-    /// Create a well-aligned SliceVec backed by a slice of the provided
+    /// Create a well-aligned FixedSliceVec backed by a slice of the provided
     /// uninitialized bytes. The typed slice is as large as possible given its
     /// item type and the alignment of the provided bytes.
     ///
     /// If you are interested in recapturing the prefix and suffix bytes on
-    /// either side of the carved-out SliceVec buffer, consider using `align_from_uninit_bytes`:
+    /// either side of the carved-out FixedSliceVec buffer, consider using `align_from_uninit_bytes`:
     ///
     #[inline]
     pub fn from_uninit_bytes(bytes: &'a mut [MaybeUninit<u8>]) -> FixedSliceVec<'a, T> {
@@ -68,10 +70,10 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         fixed_slice_vec
     }
 
-    /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
+    /// Create a well-aligned FixedSliceVec backed by a slice of the provided bytes.
     /// The slice is as large as possible given the item type and alignment of
     /// the provided bytes. Returns the unused prefix and suffix bytes on
-    /// either side of the carved-out SliceVec.
+    /// either side of the carved-out FixedSliceVec.
     ///
     /// ```
     /// let mut bytes = [3u8, 1, 4, 1, 5, 9];
@@ -80,7 +82,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// ```
     ///
     /// The bytes are treated as if they might be uninitialized, so even if `T` is `u8`,
-    /// the length of the returned `SliceVec` will be zero.
+    /// the length of the returned `FixedSliceVec` will be zero.
     #[inline]
     pub fn align_from_bytes(
         bytes: &'a mut [u8],
@@ -89,10 +91,10 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         (prefix, FixedSliceVec { storage, len: 0 }, suffix)
     }
 
-    /// Create a well-aligned SliceVec backed by a slice of the provided bytes.
+    /// Create a well-aligned FixedSliceVec backed by a slice of the provided bytes.
     /// The slice is as large as possible given the item type and alignment of
     /// the provided bytes. Returns the unused prefix and suffix bytes on
-    /// either side of the carved-out SliceVec.
+    /// either side of the carved-out FixedSliceVec.
     ///
     /// ```
     /// # use core::mem::MaybeUninit;
@@ -102,7 +104,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// let vec: fixed_slice_vec::FixedSliceVec<u16> = vec;
     /// ```
     ///
-    /// The length of the returned `SliceVec` will be zero.
+    /// The length of the returned `FixedSliceVec` will be zero.
     #[inline]
     pub fn align_from_uninit_bytes(
         bytes: &'a mut [MaybeUninit<u8>],
@@ -115,14 +117,77 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         (prefix, FixedSliceVec { storage, len: 0 }, suffix)
     }
 
-    /// The length of the SliceVec. The number of initialized
+    /// Returns an unsafe mutable pointer to the FixedSliceVec's buffer.
+    ///
+    /// The caller must ensure that the FixedSliceVec and the backing
+    /// storage data for the FixedSliceVec (provided at construction)
+    /// outlives the pointer this function returns.
+    ///
+    /// Furthermore, the contents of the buffer are not guaranteed
+    /// to have been initialized at indices < len.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut storage = [9u16, 9, 9, 9];
+    /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from(&mut storage[..]);
+    /// let size = x.len();
+    /// let x_ptr = x.as_mut_ptr();
+    ///
+    /// // Set elements via raw pointer writes.
+    /// unsafe {
+    ///     for i in 0..size {
+    ///         *x_ptr.add(i) = i as u16;
+    ///     }
+    /// }
+    /// assert_eq!(&*x, &[0,1,2,3]);
+    /// ```
+    #[inline]
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.storage.as_mut_ptr() as *mut T
+    }
+    /// Returns a raw pointer to the FixedSliceVec's buffer.
+    ///
+    /// The caller must ensure that the FixedSliceVec and the backing
+    /// storage data for the FixedSliceVec (provided at construction)
+    /// outlives the pointer this function returns.
+    ///
+    /// Furthermore, the contents of the buffer are not guaranteed
+    /// to have been initialized at indices < len.
+    ///
+    /// The caller must also ensure that the memory the pointer (non-transitively) points to
+    /// is never written to using this pointer or any pointer derived from it.
+    ///
+    /// If you need to mutate the contents of the slice with pointers, use [`as_mut_ptr`].
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// let mut storage = [1, 2, 4];
+    /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from(&mut storage[..]);
+    /// let x_ptr = x.as_ptr();
+    ///
+    /// unsafe {
+    ///     for i in 0..x.len() {
+    ///         assert_eq!(*x_ptr.add(i), 1 << i);
+    ///     }
+    /// }
+    /// ```
+    ///
+    /// [`as_mut_ptr`]: #method.as_mut_ptr
+    #[inline]
+    pub fn as_ptr(&self) -> *const T {
+        self.storage.as_ptr() as *const T
+    }
+
+    /// The length of the FixedSliceVec. The number of initialized
     /// values that have been added to it.
     #[inline]
     pub fn len(&self) -> usize {
         self.len
     }
 
-    /// The maximum amount of items that can live in this SliceVec
+    /// The maximum amount of items that can live in this FixedSliceVec
     #[inline]
     pub fn capacity(&self) -> usize {
         self.storage.len()
@@ -134,26 +199,26 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         self.len == 0
     }
 
-    /// Returns true if the SliceVec is full to capacity.
+    /// Returns true if the FixedSliceVec is full to capacity.
     #[inline]
     pub fn is_full(&self) -> bool {
         self.len == self.capacity()
     }
 
-    /// Attempt to add a value to the SliceVec.
+    /// Attempt to add a value to the FixedSliceVec.
     ///
     /// Returns an error if there is not enough capacity to hold another item.
     #[inline]
-    pub fn try_push(&mut self, value: T) -> Result<(), TryPushError<T>> {
+    pub fn try_push(&mut self, value: T) -> Result<(), StorageError<T>> {
         if self.is_full() {
-            return Err(TryPushError(value));
+            return Err(StorageError(value));
         }
         self.storage[self.len] = MaybeUninit::new(value);
         self.len += 1;
         Ok(())
     }
 
-    /// Attempt to add a value to the SliceVec.
+    /// Attempt to add a value to the FixedSliceVec.
     ///
     /// # Panics
     ///
@@ -163,7 +228,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         self.try_push(value).unwrap();
     }
 
-    /// Remove the last item from the SliceVec.
+    /// Remove the last item from the FixedSliceVec.
     #[inline]
     pub fn pop(&mut self) -> Option<T> {
         if self.len == 0 {
@@ -178,7 +243,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         v
     }
 
-    /// Removes the SliceVec's tracking of all items in it while retaining the
+    /// Removes the FixedSliceVec's tracking of all items in it while retaining the
     /// same capacity.
     #[inline]
     pub fn clear(&mut self) {
@@ -188,29 +253,134 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         self.len = 0;
     }
 
+    /// Shortens the FixedSliceVec, keeping the first `len` elements and dropping the rest.
+    ///
+    /// If len is greater than the current length, this has no effect.
+    /// Note that this method has no effect on the capacity of the FixedSliceVec.
+    #[inline]
+    pub fn truncate(&mut self, len: usize) {
+        if len > self.len {
+            return;
+        }
+        unsafe {
+            (&mut self.as_mut_slice()[len..] as *mut [T]).drop_in_place();
+        }
+        self.len = len;
+    }
+    /// Removes and returns the element at position `index` within the FixedSliceVec,
+    /// shifting all elements after it to the left.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds.
+    pub fn remove(&mut self, index: usize) -> T {
+        // Error message and overall impl strategy following along with std vec,
+        if index >= self.len {
+            panic!(
+                "removal index (is {}) should be < len (is {})",
+                index, self.len
+            );
+        }
+        unsafe { self.unchecked_remove(index) }
+    }
+
+    /// Removes and returns the element at position `index` within the FixedSliceVec,
+    /// shifting all elements after it to the left.
+    pub fn try_remove(&mut self, index: usize) -> Result<T, IndexError> {
+        if index >= self.len {
+            return Err(IndexError);
+        }
+        Ok(unsafe { self.unchecked_remove(index) })
+    }
+
+    /// Remove and return an element without checking if it's actually there.
+    #[inline]
+    unsafe fn unchecked_remove(&mut self, index: usize) -> T {
+        let ptr = self.as_mut_ptr().add(index);
+        let out = core::ptr::read(ptr);
+        core::ptr::copy(ptr.offset(1), ptr, self.len - index - 1);
+        self.len -= 1;
+        out
+    }
+    /// Removes an element from the vector and returns it.
+    ///
+    /// The removed element is replaced by the last element of the vector.
+    ///
+    /// This does not preserve ordering, but is O(1).
+    ///
+    /// # Panics
+    ///
+    /// Panics if `index` is out of bounds.
+    pub fn swap_remove(&mut self, index: usize) -> T {
+        if index >= self.len {
+            panic!(
+                "swap_remove index (is {}) should be < len (is {})",
+                index, self.len
+            );
+        }
+        unsafe { self.unchecked_swap_remove(index) }
+    }
+    /// Removes an element from the vector and returns it.
+    ///
+    /// The removed element is replaced by the last element of the vector.
+    ///
+    /// This does not preserve ordering, but is O(1).
+    pub fn try_swap_remove(&mut self, index: usize) -> Result<T, IndexError> {
+        if index >= self.len {
+            return Err(IndexError);
+        }
+        Ok(unsafe { self.unchecked_swap_remove(index) })
+    }
+
+    /// swap_remove, without the length-checking
+    #[inline]
+    unsafe fn unchecked_swap_remove(&mut self, index: usize) -> T {
+        let target_ptr = self.as_mut_ptr().add(index);
+        let end_ptr = self.as_ptr().add(self.len - 1);
+        let end_value = core::ptr::read(end_ptr);
+        self.len -= 1;
+        core::ptr::replace(target_ptr, end_value)
+    }
+
     /// Obtain an immutable slice view on the initialized portion of the
-    /// SliceVec.
+    /// FixedSliceVec.
     #[inline]
     pub fn as_slice(&self) -> &[T] {
         self
     }
 
     /// Obtain a mutable slice view on the initialized portion of the
-    /// SliceVec.
+    /// FixedSliceVec.
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         self
     }
 }
 
-/// Error that occurs when a call to `try_push` fails due
-/// to insufficient capacity in the SliceVec.
+/// Error that occurs when a call that attempts to increase
+/// the number of items in the FixedSliceVec fails
+/// due to insufficient storage capacity.
 #[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
-pub struct TryPushError<T>(pub T);
+pub struct StorageError<T>(pub T);
 
-impl<T> core::fmt::Debug for TryPushError<T> {
+impl<T> core::fmt::Debug for StorageError<T> {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
-        f.write_str("Push failed because SliceVec was full")
+        f.write_str("Push failed because FixedSliceVec was full")
+    }
+}
+
+/// Error that occurs when a call that attempts to access
+/// the FixedSliceVec in a manner that does not respect
+/// the current length of the vector, i.e. its current
+/// number of initialized items.
+#[derive(Clone, PartialEq, PartialOrd, Eq, Ord)]
+pub struct IndexError;
+
+impl core::fmt::Debug for IndexError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> Result<(), core::fmt::Error> {
+        f.write_str(
+            "Access to the FixedSliceVec failed because an invalid index or length was provided",
+        )
     }
 }
 
@@ -423,5 +593,73 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn as_ptr_reveals_expected_internal_content() {
+        let mut storage = [0u8, 1, 2, 3];
+        let storage_copy = storage.clone();
+        let fsv = FixedSliceVec::from(&mut storage[..]);
+
+        let ptr = fsv.as_ptr();
+        for i in 0..fsv.len() {
+            assert_eq!(storage_copy[i], unsafe { *ptr.add(i) });
+        }
+
+        let mut fsv = fsv;
+        fsv[3] = 99;
+        assert_eq!(99, unsafe { *ptr.add(3) })
+    }
+
+    #[test]
+    fn as_mut_ptr_allows_changes_to_internal_content() {
+        let mut storage = [0u8, 2, 4, 8];
+        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+
+        let ptr = fsv.as_mut_ptr();
+        assert_eq!(8, unsafe { ptr.add(3).read() });
+        unsafe {
+            ptr.add(3).write(99);
+        }
+        assert_eq!(99, fsv[3]);
+
+        fsv[1] = 200;
+        assert_eq!(200, unsafe { ptr.add(1).read() });
+    }
+
+    #[test]
+    fn manual_truncate() {
+        let mut storage = [0u8, 2, 4, 8];
+        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        fsv.truncate(100);
+        assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
+        fsv.truncate(2);
+        assert_eq!(&[0u8, 2], fsv.as_slice());
+        fsv.truncate(2);
+        assert_eq!(&[0u8, 2], fsv.as_slice());
+        fsv.truncate(0);
+        assert!(fsv.is_empty());
+    }
+
+    #[test]
+    fn manual_try_remove() {
+        let mut storage = [0u8, 2, 4, 8];
+        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        assert_eq!(Err(IndexError), fsv.try_remove(100));
+        assert_eq!(Err(IndexError), fsv.try_remove(4));
+        assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
+        assert_eq!(Ok(2), fsv.try_remove(1));
+        assert_eq!(&[0u8, 4, 8], fsv.as_slice());
+    }
+
+    #[test]
+    fn manual_try_swap_remove() {
+        let mut storage = [0u8, 2, 4, 8];
+        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        assert_eq!(Err(IndexError), fsv.try_swap_remove(100));
+        assert_eq!(Err(IndexError), fsv.try_swap_remove(4));
+        assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
+        assert_eq!(Ok(2), fsv.try_swap_remove(1));
+        assert_eq!(&[0u8, 8, 4], fsv.as_slice());
     }
 }

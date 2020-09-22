@@ -1,7 +1,12 @@
 [package]
 name = "fixed-slice-vec"
-version = "0.4.0"
-authors = ["Zachary Pierce <zack@auxon.io>"]
+version = "0.5.0"
+authors = [
+    "Zachary Pierce <zack@auxon.io>",
+    "Jon Lamb <jon@auxon.io>",
+    "Russell Mull <russell@auxon.io>",
+    "dan pittman <dan@auxon.io>",
+]
 edition = "2018"
 license = "Apache-2.0"
 homepage = "https://github.com/auxoncorp/fixed-slice-vec"
@@ -10,3 +15,7 @@ readme = "README.md"
 description = "`FixedSliceVec` is a dynamic length Vec with runtime-determined maximum capacity backed by a slice."
 keywords = ["vec", "vector", "no_std", "slice", "no-std"]
 categories = ["embedded", "data-structures", "no-std"]
+
+[dev-dependencies]
+arrayvec = "0.5"
+proptest = "0.9.6"
