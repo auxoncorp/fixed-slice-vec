@@ -6,8 +6,11 @@ use std::panic::AssertUnwindSafe;
 
 #[test]
 fn manual_remove() {
-    let mut storage = [0u8, 2, 4, 8];
-    let mut fsv = FixedSliceVec::from(&mut storage[..]);
+    let expected = [0u8, 2, 4, 8];
+    let mut storage = [0u8; 4];
+    let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+    assert!(fsv.try_extend(expected.iter().copied()).is_ok());
+
     assert_eq!(2, fsv.remove(1));
     assert_eq!(&[0u8, 4, 8], fsv.as_slice());
 
@@ -32,8 +35,11 @@ fn manual_push() {
 
 #[test]
 fn manual_try_swap_remove() {
-    let mut storage = [0u8, 2, 4, 8];
-    let mut fsv = FixedSliceVec::from(&mut storage[..]);
+    let expected = [0u8, 2, 4, 8];
+    let mut storage = [0u8; 4];
+    let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+    assert!(fsv.try_extend(expected.iter().copied()).is_ok());
+
     let unwind = std::panic::catch_unwind(AssertUnwindSafe(|| fsv.remove(100)));
     assert!(unwind.is_err());
     let unwind = std::panic::catch_unwind(AssertUnwindSafe(|| fsv.remove(4)));
