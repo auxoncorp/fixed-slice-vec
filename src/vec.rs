@@ -3,6 +3,7 @@
 use core::borrow::{Borrow, BorrowMut};
 use core::convert::From;
 use core::hash::{Hash, Hasher};
+use core::iter::Extend;
 use core::mem::MaybeUninit;
 use core::ops::{Deref, DerefMut};
 
@@ -27,8 +28,6 @@ impl<'a, T: Sized> Drop for FixedSliceVec<'a, T> {
 impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// Create a FixedSliceVec backed by a slice of possibly-uninitialized data.
     /// The backing storage slice is used as capacity for Vec-like operations,
-    ///
-    /// If you would like to start with initialized data instead, use `From<&mut [T]>`.
     ///
     /// The initial length of the FixedSliceVec is 0.
     #[inline]
@@ -129,8 +128,9 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// # Examples
     ///
     /// ```
-    /// let mut storage = [9u16, 9, 9, 9];
-    /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from(&mut storage[..]);
+    /// let mut storage = [0u8; 16];
+    /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from_bytes(&mut storage[..]);
+    /// assert!(x.try_extend([1u16, 2, 4, 8].iter().copied()).is_ok());
     /// let size = x.len();
     /// let x_ptr = x.as_mut_ptr();
     ///
@@ -163,8 +163,9 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// # Examples
     ///
     /// ```
-    /// let mut storage = [1, 2, 4];
-    /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from(&mut storage[..]);
+    /// let mut storage = [0u8; 16];
+    /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from_bytes(&mut storage[..]);
+    /// x.extend([1u16, 2, 4].iter().copied());
     /// let x_ptr = x.as_ptr();
     ///
     /// unsafe {
@@ -226,6 +227,33 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     #[inline]
     pub fn push(&mut self, value: T) {
         self.try_push(value).unwrap();
+    }
+
+    /// Attempt to add as many values as will fit from an iterable.
+    ///
+    /// Returns Ok(()) if all of the items in the iterator can fit into `self`.
+    /// Returns an Err containing the iterator if `self` fills up and there
+    /// are items remaining in the iterator.
+    #[inline]
+    pub fn try_extend(
+        &mut self,
+        iterable: impl IntoIterator<Item = T>,
+    ) -> Result<(), impl Iterator<Item = T>> {
+        let mut iter = iterable.into_iter().peekable();
+        loop {
+            if iter.peek().is_some() {
+                if self.is_full() {
+                    return Err(iter);
+                } else if let Some(item) = iter.next() {
+                    self.storage[self.len] = MaybeUninit::new(item);
+                    self.len += 1;
+                } else {
+                    return Ok(());
+                }
+            } else {
+                return Ok(());
+            }
+        }
     }
 
     /// Remove the last item from the FixedSliceVec.
@@ -391,19 +419,6 @@ impl<'a, T: Sized> From<&'a mut [MaybeUninit<T>]> for FixedSliceVec<'a, T> {
     }
 }
 
-impl<'a, T: Sized> From<&'a mut [T]> for FixedSliceVec<'a, T> {
-    #[inline]
-    fn from(v: &'a mut [T]) -> Self {
-        let len = v.len();
-        FixedSliceVec {
-            storage: unsafe {
-                core::slice::from_raw_parts_mut(v.as_mut_ptr() as *mut MaybeUninit<T>, len)
-            },
-            len,
-        }
-    }
-}
-
 impl<'a, T: Sized> Hash for FixedSliceVec<'a, T>
 where
     T: Hash,
@@ -519,6 +534,19 @@ impl<'a, T: Sized> DerefMut for FixedSliceVec<'a, T> {
     }
 }
 
+/// Adds as many items from the provided iterable as can fit.
+///
+/// Gives no indication of how many were extracted or if some
+/// could not fit.
+///
+/// Use `FixedSliceVec::try_extend` if you require more fine-
+/// grained signal about the outcome of attempted extension.
+impl<'a, T: Sized> Extend<T> for FixedSliceVec<'a, T> {
+    fn extend<I: IntoIterator<Item = T>>(&mut self, iter: I) {
+        let _ = self.try_extend(iter);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -546,19 +574,6 @@ mod tests {
         sv.clear();
         assert_eq!(0, sv.len());
         assert!(sv.is_empty());
-    }
-
-    #[test]
-    fn from_init() {
-        let mut data = [2, 7, 1, 9, 8, 3];
-        let mut sv: FixedSliceVec<u8> = (&mut data[..]).into();
-        assert_eq!(6, sv.len());
-        assert_eq!(6, sv.capacity());
-        assert_eq!(Some(3), sv.pop());
-        assert_eq!(Some(8), sv.pop());
-        assert_eq!(Some(9), sv.pop());
-        assert_eq!(3, sv.len());
-        assert_eq!(6, sv.capacity());
     }
 
     #[test]
@@ -597,13 +612,14 @@ mod tests {
 
     #[test]
     fn as_ptr_reveals_expected_internal_content() {
-        let mut storage = [0u8, 1, 2, 3];
-        let storage_copy = storage.clone();
-        let fsv = FixedSliceVec::from(&mut storage[..]);
+        let expected = [0u8, 1, 2, 3];
+        let mut storage = [0u8; 4];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        assert!(fsv.try_extend(expected.iter().copied()).is_ok());
 
         let ptr = fsv.as_ptr();
         for i in 0..fsv.len() {
-            assert_eq!(storage_copy[i], unsafe { *ptr.add(i) });
+            assert_eq!(expected[i], unsafe { *ptr.add(i) });
         }
 
         let mut fsv = fsv;
@@ -613,8 +629,10 @@ mod tests {
 
     #[test]
     fn as_mut_ptr_allows_changes_to_internal_content() {
-        let mut storage = [0u8, 2, 4, 8];
-        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 4];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        assert!(fsv.try_extend(expected.iter().copied()).is_ok());
 
         let ptr = fsv.as_mut_ptr();
         assert_eq!(8, unsafe { ptr.add(3).read() });
@@ -629,8 +647,11 @@ mod tests {
 
     #[test]
     fn manual_truncate() {
-        let mut storage = [0u8, 2, 4, 8];
-        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 4];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        assert!(fsv.try_extend(expected.iter().copied()).is_ok());
+
         fsv.truncate(100);
         assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
         fsv.truncate(2);
@@ -643,8 +664,11 @@ mod tests {
 
     #[test]
     fn manual_try_remove() {
-        let mut storage = [0u8, 2, 4, 8];
-        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 4];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        assert!(fsv.try_extend(expected.iter().copied()).is_ok());
+
         assert_eq!(Err(IndexError), fsv.try_remove(100));
         assert_eq!(Err(IndexError), fsv.try_remove(4));
         assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
@@ -654,12 +678,71 @@ mod tests {
 
     #[test]
     fn manual_try_swap_remove() {
-        let mut storage = [0u8, 2, 4, 8];
-        let mut fsv = FixedSliceVec::from(&mut storage[..]);
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 4];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        assert!(fsv.try_extend(expected.iter().copied()).is_ok());
+
         assert_eq!(Err(IndexError), fsv.try_swap_remove(100));
         assert_eq!(Err(IndexError), fsv.try_swap_remove(4));
         assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
         assert_eq!(Ok(2), fsv.try_swap_remove(1));
         assert_eq!(&[0u8, 8, 4], fsv.as_slice());
+    }
+
+    #[test]
+    fn try_extend_with_exactly_enough_room() {
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 4];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        assert!(fsv.try_extend(expected.iter().copied()).is_ok());
+        assert_eq!(&expected[..], &fsv[..]);
+    }
+
+    #[test]
+    fn try_extend_with_more_than_enough_room() {
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 100];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        assert!(fsv.try_extend(expected.iter().copied()).is_ok());
+        assert_eq!(&expected[..], &fsv[..]);
+    }
+
+    #[test]
+    fn try_extend_with_not_enough_room() {
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 2];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        let mut out_iter = fsv.try_extend(expected.iter().copied()).unwrap_err();
+        assert_eq!(Some(4), out_iter.next());
+        assert_eq!(Some(8), out_iter.next());
+        assert_eq!(None, out_iter.next());
+        assert_eq!(&expected[0..2], &fsv[..]);
+    }
+    #[test]
+    fn extend_with_exactly_enough_room() {
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 4];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        fsv.extend(expected.iter().copied());
+        assert_eq!(&expected[..], &fsv[..]);
+    }
+
+    #[test]
+    fn extend_with_more_than_enough_room() {
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 100];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        fsv.extend(expected.iter().copied());
+        assert_eq!(&expected[..], &fsv[..]);
+    }
+
+    #[test]
+    fn extend_with_not_enough_room() {
+        let expected = [0u8, 2, 4, 8];
+        let mut storage = [0u8; 2];
+        let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+        fsv.extend(expected.iter().copied());
+        assert_eq!(&expected[0..2], &fsv[..]);
     }
 }
