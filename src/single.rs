@@ -82,7 +82,7 @@ pub fn embed_uninit<'a, T, F, E>(
     f: F,
 ) -> Result<&'a mut T, EmbedValueError<E>>
 where
-    F: Fn(&'a mut [MaybeUninit<u8>]) -> Result<T, E>,
+    F: FnOnce(&'a mut [MaybeUninit<u8>]) -> Result<T, E>,
 {
     debug_assert!(!destination.as_ptr().is_null());
     let (_prefix, uninit_ref, suffix) = split_uninit_from_uninit_bytes(destination)?;
