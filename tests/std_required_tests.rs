@@ -1,7 +1,8 @@
 //! Tests that require access to the standard library,
 //! e.g. for catching panics
 
-use fixed_slice_vec::FixedSliceVec;
+use fixed_slice_vec::{FixedSliceVec, IndexError, StorageError};
+use proptest::std_facade::HashMap;
 use std::panic::AssertUnwindSafe;
 
 #[test]
@@ -47,4 +48,30 @@ fn manual_try_swap_remove() {
     assert_eq!(&[0u8, 2, 4, 8], fsv.as_slice());
     assert_eq!(Ok(2), fsv.try_swap_remove(1));
     assert_eq!(&[0u8, 8, 4], fsv.as_slice());
+}
+
+#[test]
+fn hashing_successful() {
+    let expected = [0u8, 2, 4, 8];
+    let mut storage = [0u8; 4];
+    let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+    assert!(fsv.try_extend(expected.iter().copied()).is_ok());
+
+    let mut map = HashMap::new();
+    map.insert(fsv, "foo");
+}
+
+#[test]
+fn formatting_successful() {
+    let index_error = format!("{:?}", IndexError);
+    assert!(index_error.len() > 0);
+    let storage_error = format!("{:?}", StorageError("foo"));
+    assert!(storage_error.len() > 0);
+    assert!(!storage_error.contains("foo"));
+
+    let expected = [0u8, 2, 4, 8];
+    let mut storage = [0u8; 4];
+    let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+    assert!(fsv.try_extend(expected.iter().copied()).is_ok());
+    assert_eq!("[0, 2, 4, 8]", format!("{:?}", fsv))
 }
