@@ -417,9 +417,9 @@ pub mod vec_like_operations {
     fn assert_alike_operations(
         other_vec: &mut dyn VecLike<Item = u16>,
         operations: Vec<VecLikeOp<u16>>,
-        mut storage_bytes: Vec<u8>,
+        mut storage_bytes: Vec<MaybeUninit<u8>>,
     ) -> Result<(), TestCaseError> {
-        let mut fs_vec: FixedSliceVec<u16> = FixedSliceVec::from_bytes(&mut storage_bytes);
+        let mut fs_vec: FixedSliceVec<u16> = FixedSliceVec::from_uninit_bytes(&mut storage_bytes);
         for op in operations {
             match op {
                 VecLikeOp::Push(v) => {
@@ -506,7 +506,7 @@ pub mod vec_like_operations {
         #[cfg_attr(miri, ignore)]
         fn compare_vec_like_operations_against_std(
             operations in proptest::collection::vec(arbitrary_vec_like_op(512), 1..1000),
-            storage_bytes in proptest::collection::vec(Just(0u8), 0..1024)
+            storage_bytes in proptest::collection::vec(Just(MaybeUninit::new(0u8)), 0..1024)
         ) {
             let mut std_vec = Vec::new();
             assert_alike_operations(&mut std_vec, operations, storage_bytes)?;
@@ -515,7 +515,7 @@ pub mod vec_like_operations {
         #[cfg_attr(miri, ignore)]
         fn compare_vec_like_operations_against_array_vec(
             operations in proptest::collection::vec(arbitrary_vec_like_op(512), 1..1000),
-            storage_bytes in proptest::collection::vec(Just(0u8), 0..1024)
+            storage_bytes in proptest::collection::vec(Just(MaybeUninit::new(0u8)), 0..1024)
         ) {
             let mut av_vec: ArrayVec<[u16; 32]> = ArrayVec::new();
             assert_alike_operations(&mut av_vec, operations, storage_bytes)?;

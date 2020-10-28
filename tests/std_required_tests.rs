@@ -3,13 +3,18 @@
 
 use fixed_slice_vec::{FixedSliceVec, IndexError, StorageError};
 use proptest::std_facade::HashMap;
+use std::mem::MaybeUninit;
 use std::panic::AssertUnwindSafe;
+
+fn uninit_storage() -> [MaybeUninit<u8>; 4] {
+    unsafe { MaybeUninit::uninit().assume_init() }
+}
 
 #[test]
 fn manual_remove() {
     let expected = [0u8, 2, 4, 8];
-    let mut storage = [0u8; 4];
-    let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+    let mut storage = uninit_storage();
+    let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
     assert!(fsv.try_extend(expected.iter().copied()).is_ok());
 
     assert_eq!(2, fsv.remove(1));
@@ -21,8 +26,8 @@ fn manual_remove() {
 
 #[test]
 fn manual_push() {
-    let mut storage = [0u8; 16];
-    let mut fsv: FixedSliceVec<u32> = FixedSliceVec::from_bytes(&mut storage[..]);
+    let mut storage: [MaybeUninit<u8>; 16] = unsafe { MaybeUninit::uninit().assume_init() };
+    let mut fsv: FixedSliceVec<u32> = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
     fsv.push(314);
     assert_eq!(&[314u32], fsv.as_slice());
 
@@ -37,8 +42,8 @@ fn manual_push() {
 #[test]
 fn manual_try_swap_remove() {
     let expected = [0u8, 2, 4, 8];
-    let mut storage = [0u8; 4];
-    let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+    let mut storage = uninit_storage();
+    let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
     assert!(fsv.try_extend(expected.iter().copied()).is_ok());
 
     let unwind = std::panic::catch_unwind(AssertUnwindSafe(|| fsv.remove(100)));
@@ -53,8 +58,8 @@ fn manual_try_swap_remove() {
 #[test]
 fn hashing_successful() {
     let expected = [0u8, 2, 4, 8];
-    let mut storage = [0u8; 4];
-    let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+    let mut storage = uninit_storage();
+    let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
     assert!(fsv.try_extend(expected.iter().copied()).is_ok());
 
     let mut map = HashMap::new();
@@ -70,8 +75,8 @@ fn formatting_successful() {
     assert!(!storage_error.contains("foo"));
 
     let expected = [0u8, 2, 4, 8];
-    let mut storage = [0u8; 4];
-    let mut fsv = FixedSliceVec::from_bytes(&mut storage[..]);
+    let mut storage = uninit_storage();
+    let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
     assert!(fsv.try_extend(expected.iter().copied()).is_ok());
     assert_eq!("[0, 2, 4, 8]", format!("{:?}", fsv))
 }
