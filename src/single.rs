@@ -25,6 +25,16 @@ impl<E> From<SplitUninitError> for EmbedValueError<E> {
 /// The user-provided constructor function also has access to the
 /// portions of the byte slice after the region allocated for
 /// the embedded value itself.
+///
+/// # Safety
+///
+/// Panics in debug mode if destination slice's underlying
+/// pointer has somehow been contrived to be null.
+///
+/// This function does nothing to ensure that the embedded value will be
+/// dropped when the returned reference is dropped. The caller is
+/// responsible for cleaning up any side effects of the embedded value
+/// outside of the destination slice.
 #[inline]
 pub fn embed<'a, T, F, E>(destination: &'a mut [u8], f: F) -> Result<&'a mut T, EmbedValueError<E>>
 where
@@ -36,9 +46,11 @@ where
         let ptr = uninit_ref.as_mut_ptr();
         *ptr = f(suffix).map_err(EmbedValueError::ConstructionError)?;
         // We literally just initialized the value, so it's safe to call it init
-        Ok(ptr
-            .as_mut()
-            .expect("Just initialized the value and the pointer is based on a non-null slice"))
+        if let Some(ptr) = ptr.as_mut() {
+            Ok(ptr)
+        } else {
+            unreachable!("Just initialized the value and the pointer is based on a non-null slice")
+        }
     }
 }
 
@@ -48,6 +60,16 @@ where
 /// The user-provided constructor function also has access to the
 /// portions of the byte slice after the region allocated for
 /// the embedded value itself.
+///
+/// # Safety
+///
+/// Panics in debug mode if destination slice's underlying
+/// pointer has somehow been contrived to be null.
+///
+/// This function does nothing to ensure that the embedded value will be
+/// dropped when the returned reference is dropped. The caller is
+/// responsible for cleaning up any side effects of the embedded value
+/// outside of the destination slice.
 #[inline]
 pub fn embed_uninit<'a, T, F, E>(
     destination: &'a mut [MaybeUninit<u8>],
@@ -62,9 +84,11 @@ where
         let ptr = uninit_ref.as_mut_ptr();
         *ptr = f(suffix).map_err(EmbedValueError::ConstructionError)?;
         // We literally just initialized the value, so it's safe to call it init
-        Ok(ptr
-            .as_mut()
-            .expect("Just initialized the value and the pointer is based on a non-null slice"))
+        if let Some(ptr) = ptr.as_mut() {
+            Ok(ptr)
+        } else {
+            unreachable!("Just initialized the value and the pointer is based on a non-null slice")
+        }
     }
 }
 
@@ -96,17 +120,13 @@ pub fn split_uninit_from_bytes<T>(
     // as its parameterized type, and our knowledge of the implementation
     // of `split_uninit_from_uninit_bytes`, namely that it never accesses
     // or mutates any content passed to it.
+    let uninit_bytes = unsafe { &mut *(destination as *mut [u8] as *mut [MaybeUninit<u8>]) };
     let (prefix, uninit_ref, suffix): (_, &mut MaybeUninit<T>, _) =
-        split_uninit_from_uninit_bytes(unsafe {
-            &mut *(destination as *mut [u8] as *mut [core::mem::MaybeUninit<u8>])
-        })?;
-    Ok(unsafe {
-        (
-            &mut *(prefix as *mut [core::mem::MaybeUninit<u8>] as *mut [u8]),
-            transmute(uninit_ref),
-            &mut *(suffix as *mut [core::mem::MaybeUninit<u8>] as *mut [u8]),
-        )
-    })
+        split_uninit_from_uninit_bytes(uninit_bytes)?;
+    let uninit_prefix = unsafe { &mut *(prefix as *mut [MaybeUninit<u8>] as *mut [u8]) };
+    let uninit_ref = unsafe { transmute(uninit_ref) };
+    let uninit_suffix = unsafe { &mut *(suffix as *mut [MaybeUninit<u8>] as *mut [u8]) };
+    Ok((uninit_prefix, uninit_ref, uninit_suffix))
 }
 
 /// Split out a mutable reference to an uninitialized struct at an available
@@ -148,15 +168,12 @@ pub fn split_uninit_from_uninit_bytes<T>(
     let (prefix, rest) = destination.split_at_mut(offset);
     let (middle, suffix) = rest.split_at_mut(size_of::<T>());
     let maybe_uninit = middle.as_mut_ptr() as *mut MaybeUninit<T>;
-    Ok((
-        prefix,
-        unsafe {
-            maybe_uninit
-                .as_mut()
-                .expect("Should be non-null since we rely on the input byte slice being non-null.")
-        },
-        suffix,
-    ))
+    let maybe_uninit = if let Some(maybe_uninit) = unsafe { maybe_uninit.as_mut() } {
+        maybe_uninit
+    } else {
+        unreachable!("Should be non-null since we rely on the input byte slice being non-null.")
+    };
+    Ok((prefix, maybe_uninit, suffix))
 }
 
 #[cfg(test)]
@@ -189,7 +206,7 @@ mod tests {
         if let Err(e) = split_uninit_from_bytes::<ZST>(&mut bytes[..]) {
             assert_eq!(SplitUninitError::ZeroSizedTypesUnsupported, e);
         } else {
-            panic!("Expected an err");
+            unreachable!("Expected an err");
         }
         if let Err(e) = embed(&mut bytes[..], |_| -> Result<ZST, ()> { Ok(ZST) }) {
             assert_eq!(
@@ -197,7 +214,7 @@ mod tests {
                 e
             );
         } else {
-            panic!("Expected an err");
+            unreachable!("Expected an err");
         }
 
         let mut uninit_bytes: [MaybeUninit<u8>; 64] =
@@ -205,7 +222,7 @@ mod tests {
         if let Err(e) = split_uninit_from_uninit_bytes::<ZST>(&mut uninit_bytes[..]) {
             assert_eq!(SplitUninitError::ZeroSizedTypesUnsupported, e);
         } else {
-            panic!("Expected an err");
+            unreachable!("Expected an err");
         }
         if let Err(e) = embed_uninit(&mut uninit_bytes[..], |_| -> Result<ZST, ()> { Ok(ZST) }) {
             assert_eq!(
@@ -213,7 +230,7 @@ mod tests {
                 e
             );
         } else {
-            panic!("Expected an err");
+            unreachable!("Expected an err");
         }
     }
 
@@ -223,10 +240,10 @@ mod tests {
         if let Err(e) = split_uninit_from_bytes::<TooBig>(&mut bytes[..]) {
             match e {
                 SplitUninitError::InsufficientSpace | SplitUninitError::Unalignable => (),
-                _ => panic!("Unexpected error kind"),
+                _ => unreachable!("Unexpected error kind"),
             }
         } else {
-            panic!("Expected an err");
+            unreachable!("Expected an err");
         }
     }
 
@@ -237,26 +254,77 @@ mod tests {
         if let Err(e) = split_uninit_from_uninit_bytes::<TooBig>(&mut uninit_bytes[..]) {
             match e {
                 SplitUninitError::InsufficientSpace | SplitUninitError::Unalignable => (),
-                _ => panic!("Unexpected error kind"),
+                _ => unreachable!("Unexpected error kind"),
             }
         } else {
-            panic!("Expected an err");
+            unreachable!("Expected an err");
         }
+    }
+
+    #[test]
+    fn split_uninit_from_bytes_observe_leftovers() {
+        let mut bytes = [0u8; 61];
+        match split_uninit_from_bytes::<[u16; 3]>(&mut bytes[..]) {
+            Ok((prefix, mid, suffix)) => {
+                *mid = MaybeUninit::new([3, 4, 5]);
+                for v in prefix {
+                    assert_eq!(0, *v);
+                }
+                for v in suffix {
+                    assert_eq!(0, *v);
+                }
+            }
+            Err(SplitUninitError::Unalignable) => return (), // Most likely MIRI messing with align-ability
+            Err(e) => unreachable!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn split_uninit_from_uninit_bytes_observe_leftovers() {
+        let mut bytes: [MaybeUninit<u8>; 64] = unsafe { MaybeUninit::uninit().assume_init() };
+        match split_uninit_from_uninit_bytes::<[u16; 3]>(&mut bytes[..]) {
+            Ok((prefix, mid, suffix)) => {
+                *mid = MaybeUninit::new([3, 4, 5]);
+                let had_prefix = prefix.len() > 0;
+                let had_suffix = suffix.len() > 0;
+                assert!(had_prefix | had_suffix);
+            }
+            Err(SplitUninitError::Unalignable) => return (), // Most likely MIRI messing with align-ability
+            Err(e) => unreachable!("Unexpected error: {:?}", e),
+        }
+    }
+
+    #[test]
+    fn split_uninit_from_bytes_empty() {
+        let bytes: &mut [u8] = &mut [];
+        assert_eq!(
+            SplitUninitError::InsufficientSpace,
+            split_uninit_from_bytes::<[u16; 3]>(bytes).unwrap_err()
+        );
+    }
+
+    #[test]
+    fn split_uninit_from_uninit_bytes_empty() {
+        let bytes: &mut [MaybeUninit<u8>] = &mut [];
+        assert_eq!(
+            SplitUninitError::InsufficientSpace,
+            split_uninit_from_uninit_bytes::<[u16; 3]>(bytes).unwrap_err()
+        );
     }
 
     #[test]
     fn embed_not_enough_space_detected() {
         let mut bytes = [0u8; 64];
         if let Err(e) = embed(&mut bytes[..], |_| -> Result<Colossal, ()> {
-            Ok(Colossal::default())
+            unreachable!("Don't expect this to execute since we can tell from the types that there is not enough space")
         }) {
             match e {
                 EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)
                 | EmbedValueError::SplitUninitError(SplitUninitError::Unalignable) => (),
-                _ => panic!("Unexpected error kind"),
+                _ => unreachable!("Unexpected error kind"),
             }
         } else {
-            panic!("Expected an err");
+            unreachable!("Expected an err");
         }
     }
 
@@ -265,15 +333,15 @@ mod tests {
         let mut uninit_bytes: [MaybeUninit<u8>; 64] =
             unsafe { MaybeUninit::uninit().assume_init() };
         if let Err(e) = embed_uninit(&mut uninit_bytes[..], |_| -> Result<Colossal, ()> {
-            Ok(Colossal::default())
+            unreachable!("Don't expect this to execute since we can tell from the types that there is not enough space")
         }) {
             match e {
                 EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)
                 | EmbedValueError::SplitUninitError(SplitUninitError::Unalignable) => (),
-                _ => panic!("Unexpected error kind"),
+                _ => unreachable!("Unexpected error kind"),
             }
         } else {
-            panic!("Expected an err");
+            unreachable!("Expected an err");
         }
     }
 
@@ -283,7 +351,7 @@ mod tests {
         let (prefix, _large_ref, suffix) = match split_uninit_from_bytes::<Large>(&mut bytes[..]) {
             Ok(r) => r,
             Err(SplitUninitError::Unalignable) => return (), // Most likely MIRI messing with align-ability
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => unreachable!("Unexpected error: {:?}", e),
         };
         assert_eq!(
             prefix.len() + core::mem::size_of::<Large>() + suffix.len(),
@@ -299,7 +367,7 @@ mod tests {
             match split_uninit_from_uninit_bytes::<Large>(&mut uninit_bytes[..]) {
                 Ok(r) => r,
                 Err(SplitUninitError::Unalignable) => return (), // Most likely MIRI messing with align-ability
-                Err(e) => panic!("Unexpected error: {:?}", e),
+                Err(e) => unreachable!("Unexpected error: {:?}", e),
             };
         assert_eq!(
             prefix.len() + core::mem::size_of::<Large>() + suffix.len(),
@@ -321,7 +389,7 @@ mod tests {
         }) {
             Ok(r) => r,
             Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => return (), // Most likely MIRI messing with align-ability
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => unreachable!("Unexpected error: {:?}", e),
         };
 
         assert_eq!(3, large_ref.medium[0]);
@@ -342,7 +410,7 @@ mod tests {
         }) {
             Ok(r) => r,
             Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => return (), // Most likely MIRI messing with align-ability
-            Err(e) => panic!("Unexpected error: {:?}", e),
+            Err(e) => unreachable!("Unexpected error: {:?}", e),
         };
         assert_eq!(3, large_ref.medium[0]);
         assert_eq!(1, large_ref.medium[1]);

@@ -11,3 +11,11 @@ Cargo.lock
 
 # IDE files
 .idea
+
+# tarpaulin reports
+tarpaulin-report.*
+
+# fuzz related
+fuzz/target
+fuzz/artifacts
+fuzz/corpus
