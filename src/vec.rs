@@ -109,7 +109,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     ///
     /// ```
     /// # use core::mem::MaybeUninit;
-    /// let mut bytes: [MaybeUninit<u8>; 15] = unsafe { MaybeUninit::uninit().assume_init() };
+    /// let mut bytes = [MaybeUninit::new(0u8); 15];
     /// let (prefix, vec, suffix) = fixed_slice_vec::FixedSliceVec::align_from_uninit_bytes(&mut
     /// bytes[..]);
     /// let vec: fixed_slice_vec::FixedSliceVec<u16> = vec;
@@ -141,7 +141,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     ///
     /// ```
     /// use core::mem::MaybeUninit;
-    /// let mut storage: [MaybeUninit<u8>; 16] = unsafe { MaybeUninit::uninit().assume_init() };
+    /// let mut storage = [MaybeUninit::new(0u8); 16];
     /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from_uninit_bytes(&mut storage[..]);
     /// assert!(x.try_extend([1u16, 2, 4, 8].iter().copied()).is_ok());
     /// let size = x.len();
@@ -177,7 +177,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     ///
     /// ```
     /// use core::mem::MaybeUninit;
-    /// let mut storage: [MaybeUninit<u8>; 16] = unsafe { MaybeUninit::uninit().assume_init() };
+    /// let mut storage = [MaybeUninit::new(0u8); 16];
     /// let mut x: fixed_slice_vec::FixedSliceVec<u16> = fixed_slice_vec::FixedSliceVec::from_uninit_bytes(&mut storage[..]);
     /// x.extend([1u16, 2, 4].iter().copied());
     /// let x_ptr = x.as_ptr();
@@ -567,7 +567,7 @@ mod tests {
 
     #[test]
     fn from_uninit() {
-        let mut data: [MaybeUninit<u8>; 32] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut data = [MaybeUninit::new(0u8); 32];
         let mut sv: FixedSliceVec<u8> = (&mut data[..]).into();
         assert_eq!(0, sv.len());
         assert_eq!(32, sv.capacity());
@@ -624,7 +624,7 @@ mod tests {
         }
     }
     fn uninit_storage() -> [MaybeUninit<u8>; 4] {
-        unsafe { MaybeUninit::uninit().assume_init() }
+        [MaybeUninit::new(0u8); 4]
     }
 
     #[test]
@@ -761,7 +761,7 @@ mod tests {
     #[test]
     fn try_extend_with_more_than_enough_room() {
         let expected = [0u8, 2, 4, 8];
-        let mut storage: [MaybeUninit<u8>; 100] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage = [MaybeUninit::new(0u8); 100];
         let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
         assert!(fsv.try_extend(expected.iter().copied()).is_ok());
         assert_eq!(&expected[..], &fsv[..]);
@@ -770,7 +770,7 @@ mod tests {
     #[test]
     fn try_extend_with_not_enough_room() {
         let expected = [0u8, 2, 4, 8];
-        let mut storage: [MaybeUninit<u8>; 2] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage = [MaybeUninit::new(0u8); 2];
         let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
         let mut out_iter = fsv.try_extend(expected.iter().copied()).unwrap_err();
         assert_eq!(Some(4), out_iter.next());
@@ -790,7 +790,7 @@ mod tests {
     #[test]
     fn extend_with_more_than_enough_room() {
         let expected = [0u8, 2, 4, 8];
-        let mut storage: [MaybeUninit<u8>; 100] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage = [MaybeUninit::new(0u8); 100];
         let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
         fsv.extend(expected.iter().copied());
         assert_eq!(&expected[..], &fsv[..]);
@@ -799,7 +799,7 @@ mod tests {
     #[test]
     fn extend_with_not_enough_room() {
         let expected = [0u8, 2, 4, 8];
-        let mut storage: [MaybeUninit<u8>; 2] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage = [MaybeUninit::new(0u8); 2];
         let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
         fsv.extend(expected.iter().copied());
         assert_eq!(&expected[0..2], &fsv[..]);
@@ -815,7 +815,7 @@ mod tests {
     }
     #[test]
     fn from_uninit_bytes_smaller_than_item_slice() {
-        let mut storage: [MaybeUninit<u8>; 1] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage = [MaybeUninit::new(0u8); 1];
         let mut fsv: FixedSliceVec<u16> = FixedSliceVec::from_uninit_bytes(&mut storage);
         assert_eq!(0, fsv.capacity());
         assert_eq!(0, fsv.len());
@@ -823,7 +823,7 @@ mod tests {
     }
     #[test]
     fn from_uninit_bytes_larger_than_item_slice() {
-        let mut storage: [MaybeUninit<u8>; 9] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage = [MaybeUninit::new(0u8); 9];
         let mut fsv: FixedSliceVec<u16> = FixedSliceVec::from_uninit_bytes(&mut storage);
         assert!(fsv.capacity() > 0);
         assert_eq!(0, fsv.len());
@@ -833,9 +833,9 @@ mod tests {
 
     #[test]
     fn equality_sanity_checks() {
-        let mut storage_a: [MaybeUninit<u8>; 2] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage_a = [MaybeUninit::new(0u8); 2];
         let mut a: FixedSliceVec<u8> = FixedSliceVec::from_uninit_bytes(&mut storage_a);
-        let mut storage_b: [MaybeUninit<u8>; 2] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage_b = [MaybeUninit::new(0u8); 2];
         let mut b: FixedSliceVec<u8> = FixedSliceVec::from_uninit_bytes(&mut storage_b);
 
         assert_eq!(a, b);
@@ -854,7 +854,7 @@ mod tests {
     #[test]
     fn borrow_ish_sanity_checks() {
         let mut expected = [0u8, 2, 4, 8];
-        let mut storage: [MaybeUninit<u8>; 12] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage = [MaybeUninit::new(0u8); 12];
         let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
         fsv.extend(expected.iter().copied());
 
@@ -866,9 +866,9 @@ mod tests {
 
     #[test]
     fn comparison_sanity_checks() {
-        let mut storage_a: [MaybeUninit<u8>; 2] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage_a = [MaybeUninit::new(0u8); 2];
         let mut a: FixedSliceVec<u8> = FixedSliceVec::from_uninit_bytes(&mut storage_a);
-        let mut storage_b: [MaybeUninit<u8>; 2] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage_b = [MaybeUninit::new(0u8); 2];
         let mut b: FixedSliceVec<u8> = FixedSliceVec::from_uninit_bytes(&mut storage_b);
         use core::cmp::Ordering;
         assert_eq!(Some(Ordering::Equal), a.partial_cmp(&b));

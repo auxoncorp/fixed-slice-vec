@@ -7,7 +7,7 @@ use std::mem::MaybeUninit;
 use std::panic::AssertUnwindSafe;
 
 fn uninit_storage() -> [MaybeUninit<u8>; 4] {
-    unsafe { MaybeUninit::uninit().assume_init() }
+    [MaybeUninit::new(0u8); 4]
 }
 
 #[test]
@@ -26,7 +26,7 @@ fn manual_remove() {
 
 #[test]
 fn manual_push() {
-    let mut storage: [MaybeUninit<u8>; 16] = unsafe { MaybeUninit::uninit().assume_init() };
+    let mut storage = [MaybeUninit::new(0u8); 16];
     let mut fsv: FixedSliceVec<u32> = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
     fsv.push(314);
     assert_eq!(&[314u32], fsv.as_slice());

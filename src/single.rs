@@ -223,8 +223,7 @@ mod tests {
             unreachable!("Expected an err");
         }
 
-        let mut uninit_bytes: [MaybeUninit<u8>; 64] =
-            unsafe { MaybeUninit::uninit().assume_init() };
+        let mut uninit_bytes = [MaybeUninit::new(0u8); 64];
         if let Err(e) = split_uninit_from_uninit_bytes::<ZST>(&mut uninit_bytes[..]) {
             assert_eq!(SplitUninitError::ZeroSizedTypesUnsupported, e);
         } else {
@@ -255,8 +254,7 @@ mod tests {
 
     #[test]
     fn split_uninit_not_enough_space_detected() {
-        let mut uninit_bytes: [MaybeUninit<u8>; 64] =
-            unsafe { MaybeUninit::uninit().assume_init() };
+        let mut uninit_bytes = [MaybeUninit::new(0u8); 64];
         if let Err(e) = split_uninit_from_uninit_bytes::<TooBig>(&mut uninit_bytes[..]) {
             match e {
                 SplitUninitError::InsufficientSpace | SplitUninitError::Unalignable => (),
@@ -287,7 +285,7 @@ mod tests {
 
     #[test]
     fn split_uninit_from_uninit_bytes_observe_leftovers() {
-        let mut bytes: [MaybeUninit<u8>; 64] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut bytes = [MaybeUninit::new(0u8); 64];
         match split_uninit_from_uninit_bytes::<[u16; 3]>(&mut bytes[..]) {
             Ok((prefix, mid, suffix)) => {
                 *mid = MaybeUninit::new([3, 4, 5]);
@@ -338,8 +336,7 @@ mod tests {
 
     #[test]
     fn embed_uninit_not_enough_space_detected() {
-        let mut uninit_bytes: [MaybeUninit<u8>; 64] =
-            unsafe { MaybeUninit::uninit().assume_init() };
+        let mut uninit_bytes = [MaybeUninit::new(0u8); 64];
         if let Err(e) = embed_uninit(&mut uninit_bytes[..], |_| -> Result<Colossal, ()> {
             unreachable!("Don't expect this to execute since we can tell from the types that there is not enough space")
         }) {
@@ -369,8 +366,7 @@ mod tests {
 
     #[test]
     fn happy_path_split_uninit() {
-        let mut uninit_bytes: [MaybeUninit<u8>; 512] =
-            unsafe { MaybeUninit::uninit().assume_init() };
+        let mut uninit_bytes = [MaybeUninit::new(0u8); 512];
         let (prefix, _large_ref, suffix) =
             match split_uninit_from_uninit_bytes::<Large>(&mut uninit_bytes[..]) {
                 Ok(r) => r,
@@ -409,8 +405,7 @@ mod tests {
     #[test]
     fn happy_path_embed_uninit() {
         const BACKING_BYTES_MAX_SIZE: usize = 512;
-        let mut uninit_bytes: [MaybeUninit<u8>; BACKING_BYTES_MAX_SIZE] =
-            unsafe { MaybeUninit::uninit().assume_init() };
+        let mut uninit_bytes = [MaybeUninit::new(0u8); BACKING_BYTES_MAX_SIZE];
         let large_ref = match embed_uninit(&mut uninit_bytes[..], |_| -> Result<Large, ()> {
             let mut l = Large::default();
             l.medium[0] = 3;
