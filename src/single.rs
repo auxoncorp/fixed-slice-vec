@@ -31,10 +31,10 @@ impl<E> From<SplitUninitError> for EmbedValueError<E> {
 /// Panics in debug mode if destination slice's underlying
 /// pointer has somehow been contrived to be null.
 ///
-/// This function nothing to ensure that the embedded value will be dropped
-/// when the returned reference is dropped. The caller is responsible
-/// for cleaning up any side effects of the embedded value outside of
-/// the destination slice.
+/// This function does nothing to ensure that the embedded value will be
+/// dropped when the returned reference is dropped. The caller is
+/// responsible for cleaning up any side effects of the embedded value
+/// outside of the destination slice.
 #[inline]
 pub fn embed<'a, T, F, E>(destination: &'a mut [u8], f: F) -> Result<&'a mut T, EmbedValueError<E>>
 where
@@ -66,10 +66,10 @@ where
 /// Panics in debug mode if destination slice's underlying
 /// pointer has somehow been contrived to be null.
 ///
-/// This function nothing to ensure that the embedded value will be dropped
-/// when the returned reference is dropped. The caller is responsible
-/// for cleaning up any side effects of the embedded value outside of
-/// the destination slice.
+/// This function does nothing to ensure that the embedded value will be
+/// dropped when the returned reference is dropped. The caller is
+/// responsible for cleaning up any side effects of the embedded value
+/// outside of the destination slice.
 #[inline]
 pub fn embed_uninit<'a, T, F, E>(
     destination: &'a mut [MaybeUninit<u8>],
