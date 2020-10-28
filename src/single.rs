@@ -35,22 +35,28 @@ impl<E> From<SplitUninitError> for EmbedValueError<E> {
 /// dropped when the returned reference is dropped. The caller is
 /// responsible for cleaning up any side effects of the embedded value
 /// outside of the destination slice.
+///
+/// If the item type `T` contains any padding bytes
+/// then those padding bytes may be observable in the provided slice
+/// after the reference is dropped. Observing padding bytes is
+/// undefined behavior.
 #[inline]
-pub fn embed<'a, T, F, E>(destination: &'a mut [u8], f: F) -> Result<&'a mut T, EmbedValueError<E>>
+pub unsafe fn embed<'a, T, F, E>(
+    destination: &'a mut [u8],
+    f: F,
+) -> Result<&'a mut T, EmbedValueError<E>>
 where
     F: FnOnce(&'a mut [u8]) -> Result<T, E>,
 {
     debug_assert!(!destination.as_ptr().is_null());
     let (_prefix, uninit_ref, suffix) = split_uninit_from_bytes(destination)?;
-    unsafe {
-        let ptr = uninit_ref.as_mut_ptr();
-        *ptr = f(suffix).map_err(EmbedValueError::ConstructionError)?;
-        // We literally just initialized the value, so it's safe to call it init
-        if let Some(ptr) = ptr.as_mut() {
-            Ok(ptr)
-        } else {
-            unreachable!("Just initialized the value and the pointer is based on a non-null slice")
-        }
+    let ptr = uninit_ref.as_mut_ptr();
+    *ptr = f(suffix).map_err(EmbedValueError::ConstructionError)?;
+    // We literally just initialized the value, so it's safe to call it init
+    if let Some(ptr) = ptr.as_mut() {
+        Ok(ptr)
+    } else {
+        unreachable!("Just initialized the value and the pointer is based on a non-null slice")
     }
 }
 
@@ -208,7 +214,7 @@ mod tests {
         } else {
             unreachable!("Expected an err");
         }
-        if let Err(e) = embed(&mut bytes[..], |_| -> Result<ZST, ()> { Ok(ZST) }) {
+        if let Err(e) = unsafe { embed(&mut bytes[..], |_| -> Result<ZST, ()> { Ok(ZST) }) } {
             assert_eq!(
                 EmbedValueError::SplitUninitError(SplitUninitError::ZeroSizedTypesUnsupported),
                 e
@@ -315,9 +321,11 @@ mod tests {
     #[test]
     fn embed_not_enough_space_detected() {
         let mut bytes = [0u8; 64];
-        if let Err(e) = embed(&mut bytes[..], |_| -> Result<Colossal, ()> {
-            unreachable!("Don't expect this to execute since we can tell from the types that there is not enough space")
-        }) {
+        if let Err(e) = unsafe {
+            embed(&mut bytes[..], |_| -> Result<Colossal, ()> {
+                unreachable!("Don't expect this to execute since we can tell from the types that there is not enough space")
+            })
+        } {
             match e {
                 EmbedValueError::SplitUninitError(SplitUninitError::InsufficientSpace)
                 | EmbedValueError::SplitUninitError(SplitUninitError::Unalignable) => (),
@@ -379,14 +387,16 @@ mod tests {
     fn happy_path_embed() {
         const BACKING_BYTES_MAX_SIZE: usize = 512;
         let mut bytes = [2u8; BACKING_BYTES_MAX_SIZE];
-        let large_ref = match embed(&mut bytes[..], |b| -> Result<Large, ()> {
-            assert!(b.iter().all(|b| *b == 2));
-            let mut l = Large::default();
-            l.medium[0] = 3;
-            l.medium[1] = 1;
-            l.medium[2] = 4;
-            Ok(l)
-        }) {
+        let large_ref = match unsafe {
+            embed(&mut bytes[..], |b| -> Result<Large, ()> {
+                assert!(b.iter().all(|b| *b == 2));
+                let mut l = Large::default();
+                l.medium[0] = 3;
+                l.medium[1] = 1;
+                l.medium[2] = 4;
+                Ok(l)
+            })
+        } {
             Ok(r) => r,
             Err(EmbedValueError::SplitUninitError(SplitUninitError::Unalignable)) => return (), // Most likely MIRI messing with align-ability
             Err(e) => unreachable!("Unexpected error: {:?}", e),

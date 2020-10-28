@@ -19,7 +19,7 @@ To add `fixed-slice-vec` to your Rust project, add a dependency to it
 in your Cargo.toml file.
 
 ```toml
-fixed-slice-vec = "0.6"
+fixed-slice-vec = "0.7"
 ```
 
 ### Usage
@@ -28,13 +28,15 @@ fixed-slice-vec = "0.6"
 
 In your Rust project source code, you can create a FixedSliceVec a number of
 ways (see the project Rust API docs for details).
-The most common form of construction is from a slice of bare bytes.
+The most common form of construction is from a slice of uninitialized bytes.
 
 ```rust
 use fixed_slice_vec::FixedSliceVec;
-let mut bytes = [0u8; 1024];
+use core::mem::MaybeUninit;
+// Safe to construct arrays of uninitialized values.
+let mut bytes: [MaybeUninit<u8>; 1024] = unsafe { MaybeUninit::uninit().assume_init() };
 let byte_slice = &mut bytes[..512];
-let mut vec: FixedSliceVec<f64> = FixedSliceVec::from_bytes(byte_slice);
+let mut vec: FixedSliceVec<f64> = FixedSliceVec::from_uninit_bytes(byte_slice);
 
 assert_eq!(0, vec.len());
 assert!(vec.capacity() >= 63, "The exact capacity will depend on source-slice alignment");
