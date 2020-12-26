@@ -248,7 +248,9 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// Returns an error if there is not enough capacity to hold another item.
     #[inline]
     pub fn try_insert(&mut self, index: usize, value: T) -> Result<(), StorageError<T>> {
-        if index >= self.capacity() { return Err(StorageError(value)); }
+        if index >= self.capacity() {
+            return Err(StorageError(value));
+        }
         let old_len = self.len();
         self.try_push(value)?;
         if index < old_len {
@@ -922,9 +924,21 @@ mod tests {
         b.push(3);
         b.push(2);
         b.push(1);
-        assert_eq!(a.as_slice(), b.as_slice(), "Equal sets of 4 elements, added in opposite order");
+        assert_eq!(
+            a.as_slice(),
+            b.as_slice(),
+            "Equal sets of 4 elements, added in opposite order"
+        );
         assert_eq!(a.try_insert(0, 0), b.try_push(0));
-        assert_eq!(a.as_slice(), &[4u8, 3u8, 2u8, 1u8], "Insert should not modify until required capacity is verified.");
-        assert_eq!(b.as_slice(), &[4u8, 3u8, 2u8, 1u8], "Push should not modify until required capacity is verified.");
+        assert_eq!(
+            a.as_slice(),
+            &[4u8, 3u8, 2u8, 1u8],
+            "Insert should not modify until required capacity is verified."
+        );
+        assert_eq!(
+            b.as_slice(),
+            &[4u8, 3u8, 2u8, 1u8],
+            "Push should not modify until required capacity is verified."
+        );
     }
 }

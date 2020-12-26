@@ -232,7 +232,7 @@ impl<'a, T> VecLike for ArrayVec<[T; 32]> {
         ArrayVec::push(self, item)
     }
 
-    fn try_insert(&mut self, index: usize, item: Self::Item, ) -> Result<(), ()> {
+    fn try_insert(&mut self, index: usize, item: Self::Item) -> Result<(), ()> {
         ArrayVec::try_insert(self, index, item).map_err(|_| ())
     }
 
@@ -494,7 +494,7 @@ pub mod vec_like_operations {
                             );
                         }
                     }
-                },
+                }
                 VecLikeOp::Clear => {
                     fs_vec.clear();
                     other_vec.clear();
