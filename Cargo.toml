@@ -1,6 +1,6 @@
 [package]
 name = "fixed-slice-vec"
-version = "0.7.1"
+version = "0.8.0"
 authors = [
     "Zachary Pierce <zack@auxon.io>",
     "Jon Lamb <jon@auxon.io>",

@@ -32,7 +32,7 @@
 //! use fixed_slice_vec::FixedSliceVec;
 //! use core::mem::MaybeUninit;
 //! // Safe to construct arrays of uninitialized values.
-//! let mut bytes: [MaybeUninit<u8>; 1024] = unsafe { MaybeUninit::uninit().assume_init() };
+//! let mut bytes = [MaybeUninit::<u8>::uninit(); 1024];
 //! let byte_slice = &mut bytes[..512];
 //! let mut vec: FixedSliceVec<f64> = FixedSliceVec::from_uninit_bytes(byte_slice);
 //!
