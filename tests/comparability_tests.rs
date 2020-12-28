@@ -401,22 +401,23 @@ pub mod vec_like_operations {
     use super::*;
     use proptest::prelude::*;
     #[derive(Debug, Clone)]
-    pub enum VecLikeOp<T> {
+    pub enum VecLikeOp<I, T> {
         Push(T),
-        Insert(usize, T),
+        Insert(I, T),
         Pop,
         Clear,
-        Truncate(usize),
-        Remove(usize),
-        SwapRemove(usize),
+        Truncate(I),
+        Remove(I),
+        SwapRemove(I),
     }
 
     fn arbitrary_vec_like_op(
         max_expected_capacity: usize,
-    ) -> impl Strategy<Value = VecLikeOp<u16>> {
+    ) -> impl Strategy<Value = VecLikeOp<usize, u16>> {
         // Weighted to avoid clearing so often that we only rarely encounter
         // border conditions
         prop_oneof! [
+            30 => any::<(usize, u16)>().prop_map(|(ind, v)| VecLikeOp::Insert(ind, v)),
             20 => any::<u16>().prop_map(|v| VecLikeOp::Push(v)),
             10 => Just(VecLikeOp::Pop),
             4 => (0..(max_expected_capacity*2)).prop_map(|v| VecLikeOp::Remove(v)),
@@ -455,7 +456,7 @@ pub mod vec_like_operations {
 
     fn assert_alike_operations(
         other_vec: &mut dyn VecLike<Item = u16>,
-        operations: Vec<VecLikeOp<u16>>,
+        operations: Vec<VecLikeOp<usize, u16>>,
         mut storage_bytes: Vec<MaybeUninit<u8>>,
     ) -> Result<(), TestCaseError> {
         let mut fs_vec: FixedSliceVec<u16> = FixedSliceVec::from_uninit_bytes(&mut storage_bytes);
@@ -481,10 +482,14 @@ pub mod vec_like_operations {
                 VecLikeOp::Insert(i, v) => {
                     let fs_result = fs_vec.try_insert(i, v);
                     if let Err(e) = fs_result {
-                        prop_assert!(fs_vec.is_full(), "FixedSliceVec should only reject inserts when full. Failed pushing {:?}", e);
+                        let insert_failure_expected =
+                            (other_vec.capacity() == other_vec.len()) || (i > other_vec.len());
+                        prop_assert!(insert_failure_expected, "FixedSliceVec should only reject when full or insertion index outside valid range. Failed inserting {:?} at {:?}", e, i);
                     } else {
                         if let Err(e) = other_vec.try_push(v) {
-                            prop_assert_eq!(other_vec.capacity(), other_vec.len(),"Other VecLike implementations should only reject when full. Failed inserting {:?}", e);
+                            let insert_failure_expected =
+                                (other_vec.capacity() == other_vec.len()) || (i > other_vec.len());
+                            prop_assert!(insert_failure_expected, "Other VecLike implementations should only reject when full or insertion index outside valid range. Failed inserting {:?} at {:?}", e, i);
                             // Roll back the value just added so we don't diverge simply because
                             // of different capacities.
                             assert_eq!(

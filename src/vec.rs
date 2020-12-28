@@ -248,14 +248,11 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// Returns an error if there is not enough capacity to hold another item.
     #[inline]
     pub fn try_insert(&mut self, index: usize, value: T) -> Result<(), StorageError<T>> {
-        if index >= self.capacity() {
+        if index > self.len() {
             return Err(StorageError(value));
         }
-        let old_len = self.len();
         self.try_push(value)?;
-        if index < old_len {
-            self.as_mut_slice()[index..].rotate_right(1);
-        }
+        self.as_mut_slice()[index..].rotate_right(1);
         Ok(())
     }
 
@@ -911,6 +908,7 @@ mod tests {
 
     #[test]
     fn insertion_sanity_checks() {
+        // Opposite order element addition check
         let mut storage_a = [MaybeUninit::<u8>::uninit(); 4];
         let mut a: FixedSliceVec<u8> = FixedSliceVec::from_uninit_bytes(&mut storage_a);
         let mut storage_b = [MaybeUninit::<u8>::uninit(); 4];
@@ -939,6 +937,39 @@ mod tests {
             b.as_slice(),
             &[4u8, 3u8, 2u8, 1u8],
             "Push should not modify until required capacity is verified."
+        );
+
+        // Mixed insertion order check
+        a.clear();
+        assert!(
+            a.try_insert(1usize, 55).is_err(),
+            "Given `n` elements and index `0` to `n-1` the maximum insert index is `n` (push)"
+        );
+        a.insert(0usize, 4);
+        a.insert(1usize, 2);
+        a.insert(1usize, 3);
+        a.insert(3usize, 1);
+        assert_eq!(
+            a.as_slice(),
+            &[4u8, 3u8, 2u8, 1u8],
+            "Alternate insert order should yeild same result."
+        );
+
+        // Zero sized buffer check
+        let mut storage_c = [MaybeUninit::<u8>::uninit(); 0];
+        let mut c: FixedSliceVec<u8> = FixedSliceVec::from_uninit_bytes(&mut storage_c);
+        assert!(
+            c.try_insert(0usize, 1).is_err(),
+            "Zero sized buffer should fail on insert"
+        );
+
+        // Zero remaining capacity check
+        let mut storage_d = [MaybeUninit::<u8>::uninit(); 1];
+        let mut d: FixedSliceVec<u8> = FixedSliceVec::from_uninit_bytes(&mut storage_d);
+        d.push(1);
+        assert!(
+            d.try_insert(0usize, 2).is_err(),
+            "Zero remaining capacity should fail an insert"
         );
     }
 }
