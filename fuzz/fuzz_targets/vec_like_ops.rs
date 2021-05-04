@@ -22,7 +22,7 @@ pub enum VecLikeOp<T> {
 
 fuzz_target!(|harness: Harness| {
     let Harness { mut storage, ops } = harness;
-    let mut fsv: FixedSliceVec<String> = FixedSliceVec::from_bytes(&mut storage[..]);
+    let mut fsv: FixedSliceVec<String> = unsafe { FixedSliceVec::from_bytes(&mut storage[..]) };
     for op in ops {
         match op {
             VecLikeOp::Clear => {

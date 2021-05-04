@@ -17,7 +17,7 @@
 //! in your Cargo.toml file.
 //!
 //! ```toml
-//! fixed-slice-vec = "0.7.1"
+//! fixed-slice-vec = "0.8.0"
 //! ```
 //!
 //! ## Usage
