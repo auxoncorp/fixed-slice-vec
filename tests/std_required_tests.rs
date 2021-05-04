@@ -104,6 +104,13 @@ fn embed_does_not_run_drops_atomic() {
 
     assert!(!flip.load(Ordering::SeqCst));
     assert!(!emb.0.load(Ordering::SeqCst));
+
+    // Manually clean up the Arc to avoid alloc-related-leak
+    unsafe {
+        let ptr: *const TrueOnDrop = emb;
+        let extracted = ptr.read();
+        std::mem::drop(extracted);
+    }
 }
 #[test]
 fn embed_uninit_does_not_run_drops_atomic() {
@@ -117,6 +124,13 @@ fn embed_uninit_does_not_run_drops_atomic() {
 
     assert!(!flip.load(Ordering::SeqCst));
     assert!(!emb.0.load(Ordering::SeqCst));
+
+    // Manually clean up the Arc to avoid alloc-related-leak
+    unsafe {
+        let ptr: *const TrueOnDrop = emb;
+        let extracted = ptr.read();
+        std::mem::drop(extracted);
+    }
 }
 
 #[test]
