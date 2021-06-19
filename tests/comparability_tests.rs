@@ -25,6 +25,11 @@ trait VecLike {
         self.try_push(item).unwrap()
     }
 
+    fn try_insert(&mut self, index: usize, item: Self::Item) -> Result<(), ()>;
+    fn insert(&mut self, index: usize, item: Self::Item) {
+        self.try_insert(index, item).unwrap()
+    }
+
     fn pop(&mut self) -> Option<Self::Item>;
     fn clear(&mut self);
     fn capacity(&self) -> usize;
@@ -52,6 +57,15 @@ impl<T> VecLike for Vec<T> {
 
     fn push(&mut self, item: Self::Item) {
         Vec::push(self, item)
+    }
+
+    fn try_insert(&mut self, index: usize, item: Self::Item) -> Result<(), ()> {
+        Vec::insert(self, index, item);
+        Ok(())
+    }
+
+    fn insert(&mut self, index: usize, item: Self::Item) {
+        Vec::insert(self, index, item)
     }
 
     fn pop(&mut self) -> Option<Self::Item> {
@@ -107,6 +121,15 @@ impl<'a, T> VecLike for &'a mut Vec<T> {
         Vec::push(self, item)
     }
 
+    fn try_insert(&mut self, index: usize, item: Self::Item) -> Result<(), ()> {
+        Vec::insert(self, index, item);
+        Ok(())
+    }
+
+    fn insert(&mut self, index: usize, item: Self::Item) {
+        Vec::insert(self, index, item)
+    }
+
     fn pop(&mut self) -> Option<Self::Item> {
         Vec::pop(self)
     }
@@ -158,6 +181,13 @@ impl<'a, T> VecLike for FixedSliceVec<'a, T> {
         self.push(item);
     }
 
+    fn try_insert(&mut self, index: usize, item: Self::Item) -> Result<(), ()> {
+        self.try_insert(index, item).map_err(|_| ())
+    }
+    fn insert(&mut self, index: usize, item: Self::Item) {
+        self.insert(index, item)
+    }
+
     fn pop(&mut self) -> Option<Self::Item> {
         self.pop()
     }
@@ -200,6 +230,14 @@ impl<'a, T> VecLike for ArrayVec<[T; 32]> {
 
     fn push(&mut self, item: Self::Item) {
         ArrayVec::push(self, item)
+    }
+
+    fn try_insert(&mut self, index: usize, item: Self::Item) -> Result<(), ()> {
+        ArrayVec::try_insert(self, index, item).map_err(|_| ())
+    }
+
+    fn insert(&mut self, index: usize, item: Self::Item) {
+        ArrayVec::insert(self, index, item)
     }
 
     fn pop(&mut self) -> Option<Self::Item> {
@@ -363,21 +401,23 @@ pub mod vec_like_operations {
     use super::*;
     use proptest::prelude::*;
     #[derive(Debug, Clone)]
-    pub enum VecLikeOp<T> {
+    pub enum VecLikeOp<I, T> {
         Push(T),
+        Insert(I, T),
         Pop,
         Clear,
-        Truncate(usize),
-        Remove(usize),
-        SwapRemove(usize),
+        Truncate(I),
+        Remove(I),
+        SwapRemove(I),
     }
 
     fn arbitrary_vec_like_op(
         max_expected_capacity: usize,
-    ) -> impl Strategy<Value = VecLikeOp<u16>> {
+    ) -> impl Strategy<Value = VecLikeOp<usize, u16>> {
         // Weighted to avoid clearing so often that we only rarely encounter
         // border conditions
         prop_oneof! [
+            30 => any::<(usize, u16)>().prop_map(|(ind, v)| VecLikeOp::Insert(ind, v)),
             20 => any::<u16>().prop_map(|v| VecLikeOp::Push(v)),
             10 => Just(VecLikeOp::Pop),
             4 => (0..(max_expected_capacity*2)).prop_map(|v| VecLikeOp::Remove(v)),
@@ -416,7 +456,7 @@ pub mod vec_like_operations {
 
     fn assert_alike_operations(
         other_vec: &mut dyn VecLike<Item = u16>,
-        operations: Vec<VecLikeOp<u16>>,
+        operations: Vec<VecLikeOp<usize, u16>>,
         mut storage_bytes: Vec<MaybeUninit<u8>>,
     ) -> Result<(), TestCaseError> {
         let mut fs_vec: FixedSliceVec<u16> = FixedSliceVec::from_uninit_bytes(&mut storage_bytes);
@@ -435,6 +475,27 @@ pub mod vec_like_operations {
                                 Some(v),
                                 fs_vec.pop(),
                                 "Ought to have popped back what we just pushed"
+                            );
+                        }
+                    }
+                }
+                VecLikeOp::Insert(i, v) => {
+                    let fs_result = fs_vec.try_insert(i, v);
+                    if let Err(e) = fs_result {
+                        let insert_failure_expected =
+                            (other_vec.capacity() == other_vec.len()) || (i > other_vec.len());
+                        prop_assert!(insert_failure_expected, "FixedSliceVec should only reject when full or insertion index outside valid range. Failed inserting {:?} at {:?}", e, i);
+                    } else {
+                        if let Err(e) = other_vec.try_insert(i, v) {
+                            let insert_failure_expected =
+                                (other_vec.capacity() == other_vec.len()) || (i > other_vec.len());
+                            prop_assert!(insert_failure_expected, "Other VecLike implementations should only reject when full or insertion index outside valid range. Failed inserting {:?} at {:?}", e, i);
+                            // Roll back the value just added so we don't diverge simply because
+                            // of different capacities.
+                            assert_eq!(
+                                Ok(v),
+                                fs_vec.try_remove(i),
+                                "Ought to have popped back what we just inserted"
                             );
                         }
                     }
