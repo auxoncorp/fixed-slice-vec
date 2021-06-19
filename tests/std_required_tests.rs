@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 fn uninit_storage() -> [MaybeUninit<u8>; 4] {
-    unsafe { MaybeUninit::uninit().assume_init() }
+    [MaybeUninit::<u8>::uninit(); 4]
 }
 
 #[test]
@@ -116,7 +116,7 @@ fn embed_does_not_run_drops_atomic() {
 fn embed_uninit_does_not_run_drops_atomic() {
     let flip = Arc::new(AtomicBool::new(false));
     let flip_clone = flip.clone();
-    let mut storage: [MaybeUninit<u8>; 16] = unsafe { MaybeUninit::uninit().assume_init() };
+    let mut storage = [MaybeUninit::<u8>::uninit(); 16];
     let emb = fixed_slice_vec::single::embed_uninit(&mut storage[..], move |_leftovers| {
         Result::<TrueOnDrop, ()>::Ok(TrueOnDrop(flip_clone))
     })
@@ -136,7 +136,7 @@ fn embed_uninit_does_not_run_drops_atomic() {
 #[test]
 fn fsv_does_not_run_drops_on_push_atomic() {
     let flip = Arc::new(AtomicBool::new(false));
-    let mut storage: [MaybeUninit<u8>; 16] = unsafe { MaybeUninit::uninit().assume_init() };
+    let mut storage = [MaybeUninit::<u8>::uninit(); 16];
     {
         let mut fsv: FixedSliceVec<TrueOnDrop> = FixedSliceVec::from_uninit_bytes(&mut storage);
         let flip_clone = flip.clone();

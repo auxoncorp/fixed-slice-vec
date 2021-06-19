@@ -442,7 +442,7 @@ mod tests {
     }
     #[test]
     fn embed_uninit_does_not_run_drops() {
-        let mut storage: [MaybeUninit<u8>; 16] = unsafe { MaybeUninit::uninit().assume_init() };
+        let mut storage = [MaybeUninit::<u8>::uninit(); 16];
         #[derive(Debug)]
         struct Target(bool);
         impl Drop for Target {
