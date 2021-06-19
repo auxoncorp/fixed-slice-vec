@@ -51,7 +51,7 @@ where
     debug_assert!(!destination.as_ptr().is_null());
     let (_prefix, uninit_ref, suffix) = split_uninit_from_bytes(destination)?;
     let ptr = uninit_ref.as_mut_ptr();
-    *ptr = f(suffix).map_err(EmbedValueError::ConstructionError)?;
+    core::ptr::write(ptr, f(suffix).map_err(EmbedValueError::ConstructionError)?);
     // We literally just initialized the value, so it's safe to call it init
     if let Some(ptr) = ptr.as_mut() {
         Ok(ptr)
@@ -88,7 +88,7 @@ where
     let (_prefix, uninit_ref, suffix) = split_uninit_from_uninit_bytes(destination)?;
     unsafe {
         let ptr = uninit_ref.as_mut_ptr();
-        *ptr = f(suffix).map_err(EmbedValueError::ConstructionError)?;
+        core::ptr::write(ptr, f(suffix).map_err(EmbedValueError::ConstructionError)?);
         // We literally just initialized the value, so it's safe to call it init
         if let Some(ptr) = ptr.as_mut() {
             Ok(ptr)
@@ -420,5 +420,41 @@ mod tests {
         assert_eq!(3, large_ref.medium[0]);
         assert_eq!(1, large_ref.medium[1]);
         assert_eq!(4, large_ref.medium[2]);
+    }
+    #[test]
+    fn embed_does_not_run_drops() {
+        let mut storage: [u8; 16] = [0u8; 16];
+        #[derive(Debug)]
+        struct Target(bool);
+        impl Drop for Target {
+            fn drop(&mut self) {
+                self.0 = true;
+            }
+        }
+        let emb = unsafe {
+            embed(&mut storage[..], move |_leftovers| {
+                Result::<Target, ()>::Ok(Target(false))
+            })
+            .unwrap()
+        };
+
+        assert!(!emb.0);
+    }
+    #[test]
+    fn embed_uninit_does_not_run_drops() {
+        let mut storage: [MaybeUninit<u8>; 16] = unsafe { MaybeUninit::uninit().assume_init() };
+        #[derive(Debug)]
+        struct Target(bool);
+        impl Drop for Target {
+            fn drop(&mut self) {
+                self.0 = true;
+            }
+        }
+        let emb = embed_uninit(&mut storage[..], move |_leftovers| {
+            Result::<Target, ()>::Ok(Target(false))
+        })
+        .unwrap();
+
+        assert!(!emb.0);
     }
 }
