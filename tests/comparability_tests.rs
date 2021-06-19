@@ -486,7 +486,7 @@ pub mod vec_like_operations {
                             (other_vec.capacity() == other_vec.len()) || (i > other_vec.len());
                         prop_assert!(insert_failure_expected, "FixedSliceVec should only reject when full or insertion index outside valid range. Failed inserting {:?} at {:?}", e, i);
                     } else {
-                        if let Err(e) = other_vec.try_push(v) {
+                        if let Err(e) = other_vec.try_insert(i, v) {
                             let insert_failure_expected =
                                 (other_vec.capacity() == other_vec.len()) || (i > other_vec.len());
                             prop_assert!(insert_failure_expected, "Other VecLike implementations should only reject when full or insertion index outside valid range. Failed inserting {:?} at {:?}", e, i);
