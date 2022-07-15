@@ -289,10 +289,17 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// same capacity.
     #[inline]
     pub fn clear(&mut self) {
-        unsafe {
-            (self.as_mut_slice() as *mut [T]).drop_in_place();
-        }
+        let original_len = self.len;
         self.len = 0;
+        unsafe {
+            // Note we cannot use the usual DerefMut helper to produce a slice because it relies
+            // on the `len` field, which we have updated above already.
+            // The early setting of `len` is designed to avoid double-free errors if there
+            // is a panic in the middle of the following drop.
+            (core::slice::from_raw_parts_mut(self.storage.as_mut_ptr() as *mut T, original_len)
+                as *mut [T])
+                .drop_in_place();
+        }
     }
 
     /// Shortens the FixedSliceVec, keeping the first `len` elements and dropping the rest.
@@ -301,13 +308,18 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// Note that this method has no effect on the capacity of the FixedSliceVec.
     #[inline]
     pub fn truncate(&mut self, len: usize) {
-        if len > self.len {
+        let original_len = self.len;
+        if len > original_len {
             return;
         }
-        unsafe {
-            (&mut self.as_mut_slice()[len..] as *mut [T]).drop_in_place();
-        }
         self.len = len;
+        unsafe {
+            // Note we cannot use the usual DerefMut helper to produce a slice because it relies
+            // on the `len` field, which we have updated above already.
+            // The early setting of `len` is designed to avoid double-free errors if there
+            // is a panic in the middle of the following drop.
+            (&mut core::slice::from_raw_parts_mut(self.storage.as_mut_ptr() as *mut T, original_len)[len..] as *mut [T]).drop_in_place();
+        }
     }
     /// Removes and returns the element at position `index` within the FixedSliceVec,
     /// shifting all elements after it to the left.
@@ -388,14 +400,14 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// FixedSliceVec.
     #[inline]
     pub fn as_slice(&self) -> &[T] {
-        self
+        Deref::deref(self)
     }
 
     /// Obtain a mutable slice view on the initialized portion of the
     /// FixedSliceVec.
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        self
+        DerefMut::deref_mut(self)
     }
 }
 
