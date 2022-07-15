@@ -135,7 +135,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// outlives the pointer this function returns.
     ///
     /// Furthermore, the contents of the buffer are not guaranteed
-    /// to have been initialized at indices < len.
+    /// to have been initialized at indices >= len.
     ///
     /// # Examples
     ///
@@ -150,14 +150,14 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// // Set elements via raw pointer writes.
     /// unsafe {
     ///     for i in 0..size {
-    ///         *x_ptr.add(i) = i as u16;
+    ///         *x_ptr.add(i) = MaybeUninit::new(i as u16);
     ///     }
     /// }
     /// assert_eq!(&*x, &[0,1,2,3]);
     /// ```
     #[inline]
-    pub fn as_mut_ptr(&mut self) -> *mut T {
-        self.storage.as_mut_ptr() as *mut T
+    pub fn as_mut_ptr(&mut self) -> *mut MaybeUninit<T> {
+        self.storage.as_mut_ptr()
     }
     /// Returns a raw pointer to the FixedSliceVec's buffer.
     ///
@@ -166,7 +166,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// outlives the pointer this function returns.
     ///
     /// Furthermore, the contents of the buffer are not guaranteed
-    /// to have been initialized at indices < len.
+    /// to have been initialized at indices >= len.
     ///
     /// The caller must also ensure that the memory the pointer (non-transitively) points to
     /// is never written to using this pointer or any pointer derived from it.
@@ -184,15 +184,15 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     ///
     /// unsafe {
     ///     for i in 0..x.len() {
-    ///         assert_eq!(*x_ptr.add(i), 1 << i);
+    ///         assert_eq!((*x_ptr.add(i)).assume_init(), 1 << i);
     ///     }
     /// }
     /// ```
     ///
     /// [`as_mut_ptr`]: #method.as_mut_ptr
     #[inline]
-    pub fn as_ptr(&self) -> *const T {
-        self.storage.as_ptr() as *const T
+    pub fn as_ptr(&self) -> *const MaybeUninit<T> {
+        self.storage.as_ptr()
     }
 
     /// The length of the FixedSliceVec. The number of initialized
@@ -338,7 +338,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// Remove and return an element without checking if it's actually there.
     #[inline]
     unsafe fn unchecked_remove(&mut self, index: usize) -> T {
-        let ptr = self.as_mut_ptr().add(index);
+        let ptr = (self.as_mut_ptr() as *mut T).add(index);
         let out = core::ptr::read(ptr);
         core::ptr::copy(ptr.offset(1), ptr, self.len - index - 1);
         self.len -= 1;
@@ -377,8 +377,8 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// swap_remove, without the length-checking
     #[inline]
     unsafe fn unchecked_swap_remove(&mut self, index: usize) -> T {
-        let target_ptr = self.as_mut_ptr().add(index);
-        let end_ptr = self.as_ptr().add(self.len - 1);
+        let target_ptr = (self.as_mut_ptr() as *mut T).add(index);
+        let end_ptr = (self.as_ptr() as *const T).add(self.len - 1);
         let end_value = core::ptr::read(end_ptr);
         self.len -= 1;
         core::ptr::replace(target_ptr, end_value)
@@ -636,30 +636,29 @@ mod tests {
 
         let ptr = fsv.as_ptr();
         for i in 0..fsv.len() {
-            assert_eq!(expected[i], unsafe { *ptr.add(i) });
+            assert_eq!(expected[i], unsafe { (*ptr.add(i)).assume_init() });
         }
 
         let mut fsv = fsv;
         fsv[3] = 99;
-        assert_eq!(99, unsafe { *ptr.add(3) })
+        assert_eq!(99, unsafe { (*fsv.as_ptr().add(3)).assume_init() })
     }
 
     #[test]
     fn as_mut_ptr_allows_changes_to_internal_content() {
         let expected = [0u8, 2, 4, 8];
         let mut storage = uninit_storage();
-        let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
+        let mut fsv: FixedSliceVec<u8> = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
         assert!(fsv.try_extend(expected.iter().copied()).is_ok());
 
-        let ptr = fsv.as_mut_ptr();
-        assert_eq!(8, unsafe { ptr.add(3).read() });
+        assert_eq!(8, unsafe { fsv.as_mut_ptr().add(3).read().assume_init() });
         unsafe {
-            ptr.add(3).write(99);
+            fsv.as_mut_ptr().add(3).write(MaybeUninit::new(99));
         }
         assert_eq!(99, fsv[3]);
 
         fsv[1] = 200;
-        assert_eq!(200, unsafe { ptr.add(1).read() });
+        assert_eq!(200, unsafe { fsv.as_mut_ptr().add(1).read().assume_init() });
     }
 
     #[test]
