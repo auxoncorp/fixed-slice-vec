@@ -276,13 +276,8 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         if self.len == 0 {
             return None;
         }
-        let upcoming_len = self.len - 1;
-        let v = Some(unsafe {
-            let item_slice = &self.storage[upcoming_len..self.len];
-            (item_slice.as_ptr() as *const T).read()
-        });
-        self.len = upcoming_len;
-        v
+        self.len -= 1;
+        Some(unsafe { self.storage[self.len].as_ptr().read() })
     }
 
     /// Removes the FixedSliceVec's tracking of all items in it while retaining the
