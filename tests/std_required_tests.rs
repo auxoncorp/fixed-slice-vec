@@ -6,7 +6,7 @@ use proptest::std_facade::HashMap;
 use std::mem::MaybeUninit;
 use std::panic::AssertUnwindSafe;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 fn uninit_storage() -> [MaybeUninit<u8>; 4] {
     unsafe { MaybeUninit::uninit().assume_init() }
@@ -144,4 +144,116 @@ fn fsv_does_not_run_drops_on_push_atomic() {
         assert!(!flip.load(Ordering::SeqCst));
     }
     assert!(flip.load(Ordering::SeqCst));
+}
+
+struct PanicDropHelper {
+    drop_counter: Arc<Mutex<usize>>,
+    panic_on_drop: Arc<Mutex<bool>>,
+}
+impl Drop for PanicDropHelper {
+    fn drop(&mut self) {
+        if let Ok(mut drop_counter) = self.drop_counter.lock() {
+            *drop_counter = drop_counter.saturating_add(1);
+        }
+        let should_panic = if let Ok(panic_on_drop) = self.panic_on_drop.lock() {
+            *panic_on_drop
+        } else {
+            false
+        };
+        if should_panic {
+            panic!("As you wish");
+        }
+    }
+}
+
+#[test]
+fn double_drop_averted_despite_panic_during_clear() {
+    // Detect the case when a panic in the middle of a `clear` call
+    // may leave the FSV in an uncertain state which may cause double-frees
+    // during subsequent calls to `clear`
+    let drop_counters = vec![
+        Arc::new(Mutex::new(0)),
+        Arc::new(Mutex::new(0)),
+        Arc::new(Mutex::new(0)),
+    ];
+    let panic_on_drop_instructions = vec![
+        Arc::new(Mutex::new(false)),
+        Arc::new(Mutex::new(true)),
+        Arc::new(Mutex::new(false)),
+    ];
+    let mut storage: [MaybeUninit<u8>; 1024] = unsafe { MaybeUninit::uninit().assume_init() };
+    let mut fsv: FixedSliceVec<PanicDropHelper> = FixedSliceVec::from_uninit_bytes(&mut storage);
+    for (drop_counter, panic_on_drop) in drop_counters.iter().zip(panic_on_drop_instructions.iter())
+    {
+        fsv.push(PanicDropHelper {
+            drop_counter: drop_counter.clone(),
+            panic_on_drop: panic_on_drop.clone(),
+        });
+    }
+    let r = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        fsv.clear();
+    }));
+    assert!(r.is_err());
+
+    let found_n_drops: Vec<usize> = drop_counters.iter().map(|dc| *dc.lock().unwrap()).collect();
+    assert!(found_n_drops.iter().sum::<usize>() <= 3);
+
+    assert!(fsv.is_empty());
+
+    for panic_on_drop in panic_on_drop_instructions {
+        let mut pod = panic_on_drop.lock().unwrap();
+        *pod = false;
+    }
+
+    fsv.clear();
+    assert!(found_n_drops.iter().sum::<usize>() <= 3);
+
+    assert!(fsv.is_empty());
+}
+#[test]
+fn double_drop_averted_despite_panic_during_truncate() {
+    // Detect the case when a panic in the middle of a `truncate` call
+    // may leave the FSV in an uncertain state which may cause double-frees
+    // during subsequent calls to `truncate`
+    let drop_counters = vec![
+        Arc::new(Mutex::new(0)),
+        Arc::new(Mutex::new(0)),
+        Arc::new(Mutex::new(0)),
+    ];
+    let panic_on_drop_instructions = vec![
+        Arc::new(Mutex::new(false)),
+        Arc::new(Mutex::new(true)),
+        Arc::new(Mutex::new(false)),
+    ];
+    let mut storage: [MaybeUninit<u8>; 1024] = unsafe { MaybeUninit::uninit().assume_init() };
+    let mut fsv: FixedSliceVec<PanicDropHelper> = FixedSliceVec::from_uninit_bytes(&mut storage);
+    for (drop_counter, panic_on_drop) in drop_counters.iter().zip(panic_on_drop_instructions.iter())
+    {
+        fsv.push(PanicDropHelper {
+            drop_counter: drop_counter.clone(),
+            panic_on_drop: panic_on_drop.clone(),
+        });
+    }
+    let r = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        fsv.truncate(1);
+    }));
+    assert!(r.is_err());
+
+    let found_n_drops: Vec<usize> = drop_counters.iter().map(|dc| *dc.lock().unwrap()).collect();
+    assert!(found_n_drops.iter().sum::<usize>() <= 2);
+
+    assert_eq!(1, fsv.len());
+
+    for panic_on_drop in panic_on_drop_instructions {
+        let mut pod = panic_on_drop.lock().unwrap();
+        *pod = false;
+    }
+
+    fsv.truncate(1);
+    assert!(found_n_drops.iter().sum::<usize>() <= 2);
+    assert_eq!(1, fsv.len());
+
+    fsv.truncate(0);
+    assert!(fsv.is_empty());
+    assert!(found_n_drops.iter().sum::<usize>() <= 3);
 }

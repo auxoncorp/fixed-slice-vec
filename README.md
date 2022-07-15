@@ -19,7 +19,7 @@ To add `fixed-slice-vec` to your Rust project, add a dependency to it
 in your Cargo.toml file.
 
 ```toml
-fixed-slice-vec = "0.8.0"
+fixed-slice-vec = "0.9.0"
 ```
 
 ### Usage

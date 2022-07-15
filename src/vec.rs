@@ -135,7 +135,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// outlives the pointer this function returns.
     ///
     /// Furthermore, the contents of the buffer are not guaranteed
-    /// to have been initialized at indices < len.
+    /// to have been initialized at indices >= len.
     ///
     /// # Examples
     ///
@@ -150,14 +150,14 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// // Set elements via raw pointer writes.
     /// unsafe {
     ///     for i in 0..size {
-    ///         *x_ptr.add(i) = i as u16;
+    ///         *x_ptr.add(i) = MaybeUninit::new(i as u16);
     ///     }
     /// }
     /// assert_eq!(&*x, &[0,1,2,3]);
     /// ```
     #[inline]
-    pub fn as_mut_ptr(&mut self) -> *mut T {
-        self.storage.as_mut_ptr() as *mut T
+    pub fn as_mut_ptr(&mut self) -> *mut MaybeUninit<T> {
+        self.storage.as_mut_ptr()
     }
     /// Returns a raw pointer to the FixedSliceVec's buffer.
     ///
@@ -166,7 +166,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// outlives the pointer this function returns.
     ///
     /// Furthermore, the contents of the buffer are not guaranteed
-    /// to have been initialized at indices < len.
+    /// to have been initialized at indices >= len.
     ///
     /// The caller must also ensure that the memory the pointer (non-transitively) points to
     /// is never written to using this pointer or any pointer derived from it.
@@ -184,15 +184,15 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     ///
     /// unsafe {
     ///     for i in 0..x.len() {
-    ///         assert_eq!(*x_ptr.add(i), 1 << i);
+    ///         assert_eq!((*x_ptr.add(i)).assume_init(), 1 << i);
     ///     }
     /// }
     /// ```
     ///
     /// [`as_mut_ptr`]: #method.as_mut_ptr
     #[inline]
-    pub fn as_ptr(&self) -> *const T {
-        self.storage.as_ptr() as *const T
+    pub fn as_ptr(&self) -> *const MaybeUninit<T> {
+        self.storage.as_ptr()
     }
 
     /// The length of the FixedSliceVec. The number of initialized
@@ -276,23 +276,25 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
         if self.len == 0 {
             return None;
         }
-        let upcoming_len = self.len - 1;
-        let v = Some(unsafe {
-            let item_slice = &self.storage[upcoming_len..self.len];
-            (item_slice.as_ptr() as *const T).read()
-        });
-        self.len = upcoming_len;
-        v
+        self.len -= 1;
+        Some(unsafe { self.storage[self.len].as_ptr().read() })
     }
 
     /// Removes the FixedSliceVec's tracking of all items in it while retaining the
     /// same capacity.
     #[inline]
     pub fn clear(&mut self) {
-        unsafe {
-            (self.as_mut_slice() as *mut [T]).drop_in_place();
-        }
+        let original_len = self.len;
         self.len = 0;
+        unsafe {
+            // Note we cannot use the usual DerefMut helper to produce a slice because it relies
+            // on the `len` field, which we have updated above already.
+            // The early setting of `len` is designed to avoid double-free errors if there
+            // is a panic in the middle of the following drop.
+            (core::slice::from_raw_parts_mut(self.storage.as_mut_ptr() as *mut T, original_len)
+                as *mut [T])
+                .drop_in_place();
+        }
     }
 
     /// Shortens the FixedSliceVec, keeping the first `len` elements and dropping the rest.
@@ -301,13 +303,18 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// Note that this method has no effect on the capacity of the FixedSliceVec.
     #[inline]
     pub fn truncate(&mut self, len: usize) {
-        if len > self.len {
+        let original_len = self.len;
+        if len > original_len {
             return;
         }
-        unsafe {
-            (&mut self.as_mut_slice()[len..] as *mut [T]).drop_in_place();
-        }
         self.len = len;
+        unsafe {
+            // Note we cannot use the usual DerefMut helper to produce a slice because it relies
+            // on the `len` field, which we have updated above already.
+            // The early setting of `len` is designed to avoid double-free errors if there
+            // is a panic in the middle of the following drop.
+            (&mut core::slice::from_raw_parts_mut(self.storage.as_mut_ptr() as *mut T, original_len)[len..] as *mut [T]).drop_in_place();
+        }
     }
     /// Removes and returns the element at position `index` within the FixedSliceVec,
     /// shifting all elements after it to the left.
@@ -338,7 +345,7 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// Remove and return an element without checking if it's actually there.
     #[inline]
     unsafe fn unchecked_remove(&mut self, index: usize) -> T {
-        let ptr = self.as_mut_ptr().add(index);
+        let ptr = (self.as_mut_ptr() as *mut T).add(index);
         let out = core::ptr::read(ptr);
         core::ptr::copy(ptr.offset(1), ptr, self.len - index - 1);
         self.len -= 1;
@@ -377,8 +384,8 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// swap_remove, without the length-checking
     #[inline]
     unsafe fn unchecked_swap_remove(&mut self, index: usize) -> T {
-        let target_ptr = self.as_mut_ptr().add(index);
-        let end_ptr = self.as_ptr().add(self.len - 1);
+        let target_ptr = (self.as_mut_ptr() as *mut T).add(index);
+        let end_ptr = (self.as_ptr() as *const T).add(self.len - 1);
         let end_value = core::ptr::read(end_ptr);
         self.len -= 1;
         core::ptr::replace(target_ptr, end_value)
@@ -388,14 +395,14 @@ impl<'a, T: Sized> FixedSliceVec<'a, T> {
     /// FixedSliceVec.
     #[inline]
     pub fn as_slice(&self) -> &[T] {
-        self
+        Deref::deref(self)
     }
 
     /// Obtain a mutable slice view on the initialized portion of the
     /// FixedSliceVec.
     #[inline]
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        self
+        DerefMut::deref_mut(self)
     }
 }
 
@@ -636,30 +643,29 @@ mod tests {
 
         let ptr = fsv.as_ptr();
         for i in 0..fsv.len() {
-            assert_eq!(expected[i], unsafe { *ptr.add(i) });
+            assert_eq!(expected[i], unsafe { (*ptr.add(i)).assume_init() });
         }
 
         let mut fsv = fsv;
         fsv[3] = 99;
-        assert_eq!(99, unsafe { *ptr.add(3) })
+        assert_eq!(99, unsafe { (*fsv.as_ptr().add(3)).assume_init() })
     }
 
     #[test]
     fn as_mut_ptr_allows_changes_to_internal_content() {
         let expected = [0u8, 2, 4, 8];
         let mut storage = uninit_storage();
-        let mut fsv = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
+        let mut fsv: FixedSliceVec<u8> = FixedSliceVec::from_uninit_bytes(&mut storage[..]);
         assert!(fsv.try_extend(expected.iter().copied()).is_ok());
 
-        let ptr = fsv.as_mut_ptr();
-        assert_eq!(8, unsafe { ptr.add(3).read() });
+        assert_eq!(8, unsafe { fsv.as_mut_ptr().add(3).read().assume_init() });
         unsafe {
-            ptr.add(3).write(99);
+            fsv.as_mut_ptr().add(3).write(MaybeUninit::new(99));
         }
         assert_eq!(99, fsv[3]);
 
         fsv[1] = 200;
-        assert_eq!(200, unsafe { ptr.add(1).read() });
+        assert_eq!(200, unsafe { fsv.as_mut_ptr().add(1).read().assume_init() });
     }
 
     #[test]
